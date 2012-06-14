@@ -32,6 +32,10 @@
 #include "env.h"
 #include "phantom.h"
 
+#ifdef Q_OS_LINUX
+#include "client/linux/handler/exception_handler.h"
+#endif
+
 #include <QApplication>
 
 #if QT_VERSION != QT_VERSION_CHECK(4, 8, 0)
@@ -40,10 +44,19 @@
 
 int main(int argc, char** argv, const char** envp)
 {
+#ifdef Q_OS_LINUX
+    google_breakpad::ExceptionHandler eh("/tmp", NULL, Utils::exceptionHandler, NULL, true);
+#endif
+
     // Registering an alternative Message Handler
     qInstallMsgHandler(Utils::messageHandler);
 
     QApplication app(argc, argv);
+
+#ifdef STATIC_BUILD
+    Q_INIT_RESOURCE(WebKit);
+    Q_INIT_RESOURCE(InspectorBackendStub);
+#endif
 
     app.setWindowIcon(QIcon(":/phantomjs-icon.png"));
     app.setApplicationName("PhantomJS");

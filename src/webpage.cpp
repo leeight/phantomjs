@@ -72,6 +72,15 @@ public:
         setForwardUnsupportedContent(true);
     }
 
+    bool extension(Extension extension, const ExtensionOption* option, ExtensionReturn* output) {
+        if (extension == ChooseMultipleFilesExtension) {
+            static_cast<ChooseMultipleFilesExtensionReturn*>(output)->fileNames = QStringList(m_uploadFile);
+            return true;
+        } else {
+            return false;
+        }
+    }
+
 public slots:
     bool shouldInterruptJavaScript() {
         QApplication::processEvents(QEventLoop::AllEvents, 42);
@@ -79,6 +88,10 @@ public slots:
     }
 
 protected:
+
+    bool supportsExtension(Extension extension) const {
+        return extension == ChooseMultipleFilesExtension;
+    }
 
     QString chooseFile(QWebFrame *originatingFrame, const QString &oldFile) {
         Q_UNUSED(originatingFrame);
@@ -138,7 +151,7 @@ WebPage::WebPage(QObject *parent, const Config *config, const QUrl &baseUrl)
 
     m_webPage->settings()->setAttribute(QWebSettings::OfflineStorageDatabaseEnabled, true);
     if (config->offlineStoragePath().isEmpty()) {
-    	m_webPage->settings()->setOfflineStoragePath(QDesktopServices::storageLocation(QDesktopServices::DataLocation));
+        m_webPage->settings()->setOfflineStoragePath(QDesktopServices::storageLocation(QDesktopServices::DataLocation));
     } else {
         m_webPage->settings()->setOfflineStoragePath(config->offlineStoragePath());
     }
@@ -193,7 +206,7 @@ QString WebPage::libraryPath() const
 void WebPage::setLibraryPath(const QString &libraryPath)
 {
    m_libraryPath = libraryPath;
-} 
+}
 
 QString WebPage::offlineStoragePath() const
 {
@@ -620,6 +633,16 @@ bool WebPage::renderPdf(const QString &fileName)
 
     m_mainFrame->print(&printer, this);
     return true;
+}
+
+void WebPage::setZoomFactor(qreal zoom)
+{
+    m_mainFrame->setZoomFactor(zoom);
+}
+
+qreal WebPage::zoomFactor() const
+{
+    return m_mainFrame->zoomFactor();
 }
 
 qreal getHeight(const QVariantMap &map, const QString &key)

@@ -58,6 +58,25 @@ include(gif/gif.pri)
 include(mongoose/mongoose.pri)
 include(linenoise/linenoise.pri)
 
+linux* {
+    INCLUDEPATH += breakpad/src
+
+    SOURCES += breakpad/src/client/linux/crash_generation/crash_generation_client.cc \
+      breakpad/src/client/linux/handler/exception_handler.cc \
+      breakpad/src/client/linux/log/log.cc \
+      breakpad/src/client/linux/minidump_writer/linux_dumper.cc \
+      breakpad/src/client/linux/minidump_writer/linux_ptrace_dumper.cc \
+      breakpad/src/client/linux/minidump_writer/minidump_writer.cc \
+      breakpad/src/client/minidump_file_writer.cc \
+      breakpad/src/common/convert_UTF.c \
+      breakpad/src/common/md5.cc \
+      breakpad/src/common/string_conversion.cc \
+      breakpad/src/common/linux/file_id.cc \
+      breakpad/src/common/linux/guid_creator.cc \
+      breakpad/src/common/linux/memory_mapped_file.cc \
+      breakpad/src/common/linux/safe_readlink.cc
+}
+
 win32: RC_FILE = phantomjs_win.rc
 os2:   RC_FILE = phantomjs_os2.rc
 
@@ -67,4 +86,7 @@ mac {
     CONFIG -= app_bundle
 # Uncomment to build a Mac OS X Universal Binary (i.e. x86 + ppc)
 #    CONFIG += x86 ppc
+}
+CONFIG(static) {
+    DEFINES += STATIC_BUILD
 }
