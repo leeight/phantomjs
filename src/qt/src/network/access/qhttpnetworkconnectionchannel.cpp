@@ -1,38 +1,38 @@
 /****************************************************************************
 **
-** Copyright (C) 2011 Nokia Corporation and/or its subsidiary(-ies).
-** All rights reserved.
-** Contact: Nokia Corporation (qt-info@nokia.com)
+** Copyright (C) 2012 Digia Plc and/or its subsidiary(-ies).
+** Contact: http://www.qt-project.org/legal
 **
 ** This file is part of the QtNetwork module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
-** GNU Lesser General Public License Usage
-** This file may be used under the terms of the GNU Lesser General Public
-** License version 2.1 as published by the Free Software Foundation and
-** appearing in the file LICENSE.LGPL included in the packaging of this
-** file. Please review the following information to ensure the GNU Lesser
-** General Public License version 2.1 requirements will be met:
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and Digia.  For licensing terms and
+** conditions see http://qt.digia.com/licensing.  For further information
+** use the contact form at http://qt.digia.com/contact-us.
 **
-** In addition, as a special exception, Nokia gives you certain additional
-** rights. These rights are described in the Nokia Qt LGPL Exception
+** GNU Lesser General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU Lesser
+** General Public License version 2.1 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU Lesser General Public License version 2.1 requirements
+** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+**
+** In addition, as a special exception, Digia gives you certain additional
+** rights.  These rights are described in the Digia Qt LGPL Exception
 ** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
 **
 ** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU General
-** Public License version 3.0 as published by the Free Software Foundation
-** and appearing in the file LICENSE.GPL included in the packaging of this
-** file. Please review the following information to ensure the GNU General
-** Public License version 3.0 requirements will be met:
-** http://www.gnu.org/copyleft/gpl.html.
-**
-** Other Usage
-** Alternatively, this file may be used in accordance with the terms and
-** conditions contained in a signed written agreement between you and Nokia.
-**
-**
-**
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3.0 as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU General Public License version 3.0 requirements will be
+** met: http://www.gnu.org/copyleft/gpl.html.
 **
 **
 ** $QT_END_LICENSE$
@@ -75,6 +75,8 @@ QHttpNetworkConnectionChannel::QHttpNetworkConnectionChannel()
     , reconnectAttempts(2)
     , authMethod(QAuthenticatorPrivate::None)
     , proxyAuthMethod(QAuthenticatorPrivate::None)
+    , authenticationCredentialsSent(false)
+    , proxyCredentialsSent(false)
 #ifndef QT_NO_OPENSSL
     , ignoreAllSslErrors(false)
 #endif
@@ -334,9 +336,10 @@ void QHttpNetworkConnectionChannel::_q_receiveReply()
     Q_ASSERT(socket);
 
     if (!reply) {
-        // heh, how should that happen!
-        qWarning() << "QHttpNetworkConnectionChannel::_q_receiveReply() called without QHttpNetworkReply,"
-                << socket->bytesAvailable() << "bytes on socket.";
+        if (socket->bytesAvailable() > 0)
+            qWarning() << "QHttpNetworkConnectionChannel::_q_receiveReply() called without QHttpNetworkReply,"
+                       << socket->bytesAvailable() << "bytes on socket.";
+
         close();
         return;
     }
@@ -555,6 +558,14 @@ bool QHttpNetworkConnectionChannel::ensureConnection()
 
         // reset state
         pipeliningSupported = PipeliningSupportUnknown;
+        authenticationCredentialsSent = false;
+        proxyCredentialsSent = false;
+        authenticator.detach();
+        QAuthenticatorPrivate *priv = QAuthenticatorPrivate::getPrivate(authenticator);
+        priv->hasFailed = false;
+        proxyAuthenticator.detach();
+        priv = QAuthenticatorPrivate::getPrivate(proxyAuthenticator);
+        priv->hasFailed = false;
 
         // This workaround is needed since we use QAuthenticator for NTLM authentication. The "phase == Done"
         // is the usual criteria for emitting authentication signals. The "phase" is set to "Done" when the
@@ -562,7 +573,7 @@ bool QHttpNetworkConnectionChannel::ensureConnection()
         // check the "phase" for generating the Authorization header. NTLM authentication is a two stage
         // process & needs the "phase". To make sure the QAuthenticator uses the current username/password
         // the phase is reset to Start.
-        QAuthenticatorPrivate *priv = QAuthenticatorPrivate::getPrivate(authenticator);
+        priv = QAuthenticatorPrivate::getPrivate(authenticator);
         if (priv && priv->phase == QAuthenticatorPrivate::Done)
             priv->phase = QAuthenticatorPrivate::Start;
         priv = QAuthenticatorPrivate::getPrivate(proxyAuthenticator);
@@ -687,7 +698,7 @@ void QHttpNetworkConnectionChannel::allDone()
 #endif
 
     if (!reply) {
-        qWarning() << "QHttpNetworkConnectionChannel::allDone() called without reply. Please report at http://bugreports.qt.nokia.com/";
+        qWarning() << "QHttpNetworkConnectionChannel::allDone() called without reply. Please report at http://bugreports.qt-project.org/";
         return;
     }
 
@@ -751,14 +762,8 @@ void QHttpNetworkConnectionChannel::allDone()
         }
     } else if (alreadyPipelinedRequests.isEmpty() && socket->bytesAvailable() > 0) {
         // this is weird. we had nothing pipelined but still bytes available. better close it.
-        //if (socket->bytesAvailable() > 0)
-        //    close();
-        //
-        // FIXME
-        // We do not close it anymore now, but should introduce this again after having fixed
-        // the chunked decoder in QHttpNetworkReply to read the whitespace after the last chunk.
-        // (Currently this is worked around by readStatus in the QHttpNetworkReply ignoring
-        // leading whitespace.
+        close();
+
         QMetaObject::invokeMethod(connection, "_q_startNextRequest", Qt::QueuedConnection);
     } else if (alreadyPipelinedRequests.isEmpty()) {
         if (connectionCloseEnabled)
@@ -837,6 +842,9 @@ void QHttpNetworkConnectionChannel::handleStatus()
                     closeAndResendCurrentRequest();
                     QMetaObject::invokeMethod(connection, "_q_startNextRequest", Qt::QueuedConnection);
                 }
+            } else {
+                //authentication cancelled, close the channel.
+                close();
             }
         } else {
             emit reply->headerChanged();
@@ -1065,6 +1073,32 @@ void QHttpNetworkConnectionChannel::_q_error(QAbstractSocket::SocketError socket
                 return;
             }
             // ok, we got a disconnect even though we did not expect it
+            // Try to read everything from the socket before we emit the error.
+            if (socket->bytesAvailable()) {
+                // Read everything from the socket into the reply buffer.
+                // we can ignore the readbuffersize as the data is already
+                // in memory and we will not recieve more data on the socket.
+                reply->setReadBufferSize(0);
+                _q_receiveReply();
+#ifndef QT_NO_OPENSSL
+                if (ssl) {
+                    // QT_NO_OPENSSL. The QSslSocket can still have encrypted bytes in the plainsocket.
+                    // So we need to check this if the socket is a QSslSocket. When the socket is flushed
+                    // it will force a decrypt of the encrypted data in the plainsocket.
+                    QSslSocket *sslSocket = static_cast<QSslSocket*>(socket);
+                    qint64 beforeFlush = sslSocket->encryptedBytesAvailable();
+                    while (sslSocket->encryptedBytesAvailable()) {
+                        sslSocket->flush();
+                        _q_receiveReply();
+                        qint64 afterFlush = sslSocket->encryptedBytesAvailable();
+                        if (afterFlush == beforeFlush)
+                            break;
+                        beforeFlush = afterFlush;
+                    }
+                }
+#endif
+            }
+
             errorCode = QNetworkReply::RemoteHostClosedError;
         } else {
             errorCode = QNetworkReply::RemoteHostClosedError;

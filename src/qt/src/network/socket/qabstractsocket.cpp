@@ -1,38 +1,38 @@
 /****************************************************************************
 **
-** Copyright (C) 2011 Nokia Corporation and/or its subsidiary(-ies).
-** All rights reserved.
-** Contact: Nokia Corporation (qt-info@nokia.com)
+** Copyright (C) 2012 Digia Plc and/or its subsidiary(-ies).
+** Contact: http://www.qt-project.org/legal
 **
 ** This file is part of the QtNetwork module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
-** GNU Lesser General Public License Usage
-** This file may be used under the terms of the GNU Lesser General Public
-** License version 2.1 as published by the Free Software Foundation and
-** appearing in the file LICENSE.LGPL included in the packaging of this
-** file. Please review the following information to ensure the GNU Lesser
-** General Public License version 2.1 requirements will be met:
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and Digia.  For licensing terms and
+** conditions see http://qt.digia.com/licensing.  For further information
+** use the contact form at http://qt.digia.com/contact-us.
 **
-** In addition, as a special exception, Nokia gives you certain additional
-** rights. These rights are described in the Nokia Qt LGPL Exception
+** GNU Lesser General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU Lesser
+** General Public License version 2.1 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU Lesser General Public License version 2.1 requirements
+** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+**
+** In addition, as a special exception, Digia gives you certain additional
+** rights.  These rights are described in the Digia Qt LGPL Exception
 ** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
 **
 ** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU General
-** Public License version 3.0 as published by the Free Software Foundation
-** and appearing in the file LICENSE.GPL included in the packaging of this
-** file. Please review the following information to ensure the GNU General
-** Public License version 3.0 requirements will be met:
-** http://www.gnu.org/copyleft/gpl.html.
-**
-** Other Usage
-** Alternatively, this file may be used in accordance with the terms and
-** conditions contained in a signed written agreement between you and Nokia.
-**
-**
-**
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3.0 as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU General Public License version 3.0 requirements will be
+** met: http://www.gnu.org/copyleft/gpl.html.
 **
 **
 ** $QT_END_LICENSE$
@@ -301,20 +301,23 @@
     \value ProxyAuthenticationRequiredError The socket is using a proxy, and
            the proxy requires authentication.
     \value SslHandshakeFailedError The SSL/TLS handshake failed, so
-           the connection was closed (only used in QSslSocket)
+           the connection was closed (only used in QSslSocket) (This value was introduced in 4.4.)
     \value UnfinishedSocketOperationError Used by QAbstractSocketEngine only,
            The last operation attempted has not finished yet (still in progress in
-            the background).
+            the background). (This value was introduced in 4.4.)
     \value ProxyConnectionRefusedError Could not contact the proxy server because
-           the connection to that server was denied
+           the connection to that server was denied (This value was introduced in 4.5.)
     \value ProxyConnectionClosedError The connection to the proxy server was closed
            unexpectedly (before the connection to the final peer was established)
+           (This value was introduced in 4.5.)
     \value ProxyConnectionTimeoutError The connection to the proxy server timed out
            or the proxy server stopped responding in the authentication phase.
+           (This value was introduced in 4.5.)
     \value ProxyNotFoundError The proxy address set with setProxy() (or the application
-           proxy) was not found.
+           proxy) was not found. (This value was introduced in 4.5.)
     \value ProxyProtocolError The connection negotiation with the proxy server
            because the response from the proxy server could not be understood.
+           (This value was introduced in 4.5.)
 
     \value UnknownSocketError An unidentified error occurred.
     \sa QAbstractSocket::error()
@@ -797,16 +800,6 @@ bool QAbstractSocketPrivate::flush()
 */
 void QAbstractSocketPrivate::resolveProxy(const QString &hostname, quint16 port)
 {
-    QHostAddress parsed;
-    if (hostname == QLatin1String("localhost")
-        || hostname.startsWith(QLatin1String("localhost."))
-        || (parsed.setAddress(hostname)
-            && (parsed == QHostAddress::LocalHost
-                || parsed == QHostAddress::LocalHostIPv6))) {
-        proxyInUse = QNetworkProxy::NoProxy;
-        return;
-    }
-
     QList<QNetworkProxy> proxies;
 
     if (proxy.type() != QNetworkProxy::DefaultProxy) {

@@ -1,38 +1,38 @@
 /****************************************************************************
 **
-** Copyright (C) 2011 Nokia Corporation and/or its subsidiary(-ies).
-** All rights reserved.
-** Contact: Nokia Corporation (qt-info@nokia.com)
+** Copyright (C) 2012 Digia Plc and/or its subsidiary(-ies).
+** Contact: http://www.qt-project.org/legal
 **
 ** This file is part of the qmake application of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
-** GNU Lesser General Public License Usage
-** This file may be used under the terms of the GNU Lesser General Public
-** License version 2.1 as published by the Free Software Foundation and
-** appearing in the file LICENSE.LGPL included in the packaging of this
-** file. Please review the following information to ensure the GNU Lesser
-** General Public License version 2.1 requirements will be met:
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and Digia.  For licensing terms and
+** conditions see http://qt.digia.com/licensing.  For further information
+** use the contact form at http://qt.digia.com/contact-us.
 **
-** In addition, as a special exception, Nokia gives you certain additional
-** rights. These rights are described in the Nokia Qt LGPL Exception
+** GNU Lesser General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU Lesser
+** General Public License version 2.1 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU Lesser General Public License version 2.1 requirements
+** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+**
+** In addition, as a special exception, Digia gives you certain additional
+** rights.  These rights are described in the Digia Qt LGPL Exception
 ** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
 **
 ** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU General
-** Public License version 3.0 as published by the Free Software Foundation
-** and appearing in the file LICENSE.GPL included in the packaging of this
-** file. Please review the following information to ensure the GNU General
-** Public License version 3.0 requirements will be met:
-** http://www.gnu.org/copyleft/gpl.html.
-**
-** Other Usage
-** Alternatively, this file may be used in accordance with the terms and
-** conditions contained in a signed written agreement between you and Nokia.
-**
-**
-**
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3.0 as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU General Public License version 3.0 requirements will be
+** met: http://www.gnu.org/copyleft/gpl.html.
 **
 **
 ** $QT_END_LICENSE$
@@ -115,11 +115,13 @@ DotNET which_dotnet_version()
     current_version = NET2002;
 
     QStringList warnPath;
+    QHash<DotNET, QString> installPaths;
     int installed = 0;
     int i = 0;
     for(; dotNetCombo[i].version; ++i) {
         QString path = qt_readRegistryKey(HKEY_LOCAL_MACHINE, dotNetCombo[i].regKey);
-        if(!path.isEmpty()) {
+        if (!path.isEmpty() && installPaths.value(dotNetCombo[i].version) != path) {
+            installPaths.insert(dotNetCombo[i].version, path);
             ++installed;
             current_version = dotNetCombo[i].version;
                         warnPath += QString("%1").arg(dotNetCombo[i].versionStr);
@@ -455,10 +457,13 @@ void VcprojGenerator::writeSubDirs(QTextStream &t)
                         // and to be able to extract all the dependencies
                         Option::QMAKE_MODE old_mode = Option::qmake_mode;
                         Option::qmake_mode = Option::QMAKE_GENERATE_NOTHING;
+                        QString old_output_dir = Option::output_dir;
+                        Option::output_dir = QFileInfo(fileFixify(dir, qmake_getpwd(), Option::output_dir)).canonicalFilePath();
                         VcprojGenerator tmp_vcproj;
                         tmp_vcproj.setNoIO(true);
                         tmp_vcproj.setProjectFile(&tmp_proj);
                         Option::qmake_mode = old_mode;
+                        Option::output_dir = old_output_dir;
                         if(Option::debug_level) {
                             debug_msg(1, "Dumping all variables:");
                             QMap<QString, QStringList> &vars = tmp_proj.variables();
@@ -943,6 +948,10 @@ void VcprojGenerator::initCompilerTool()
         placement = ".\\";
 
     VCConfiguration &conf = vcProject.Configuration;
+    if (conf.CompilerVersion >= NET2010) {
+        // adjust compiler tool defaults for VS 2010 and above
+        conf.compiler.Optimization = optimizeDisabled;
+    }
     conf.compiler.AssemblerListingLocation = placement ;
     conf.compiler.ProgramDataBaseFileName = ".\\" ;
     conf.compiler.ObjectFile = placement ;

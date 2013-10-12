@@ -1,38 +1,38 @@
 /****************************************************************************
 **
-** Copyright (C) 2011 Nokia Corporation and/or its subsidiary(-ies).
-** All rights reserved.
-** Contact: Nokia Corporation (qt-info@nokia.com)
+** Copyright (C) 2012 Digia Plc and/or its subsidiary(-ies).
+** Contact: http://www.qt-project.org/legal
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
-** GNU Lesser General Public License Usage
-** This file may be used under the terms of the GNU Lesser General Public
-** License version 2.1 as published by the Free Software Foundation and
-** appearing in the file LICENSE.LGPL included in the packaging of this
-** file. Please review the following information to ensure the GNU Lesser
-** General Public License version 2.1 requirements will be met:
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and Digia.  For licensing terms and
+** conditions see http://qt.digia.com/licensing.  For further information
+** use the contact form at http://qt.digia.com/contact-us.
 **
-** In addition, as a special exception, Nokia gives you certain additional
-** rights. These rights are described in the Nokia Qt LGPL Exception
+** GNU Lesser General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU Lesser
+** General Public License version 2.1 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU Lesser General Public License version 2.1 requirements
+** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+**
+** In addition, as a special exception, Digia gives you certain additional
+** rights.  These rights are described in the Digia Qt LGPL Exception
 ** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
 **
 ** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU General
-** Public License version 3.0 as published by the Free Software Foundation
-** and appearing in the file LICENSE.GPL included in the packaging of this
-** file. Please review the following information to ensure the GNU General
-** Public License version 3.0 requirements will be met:
-** http://www.gnu.org/copyleft/gpl.html.
-**
-** Other Usage
-** Alternatively, this file may be used in accordance with the terms and
-** conditions contained in a signed written agreement between you and Nokia.
-**
-**
-**
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3.0 as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU General Public License version 3.0 requirements will be
+** met: http://www.gnu.org/copyleft/gpl.html.
 **
 **
 ** $QT_END_LICENSE$
@@ -60,8 +60,10 @@ QT_BEGIN_HEADER
 QT_BEGIN_NAMESPACE
 
 #ifdef QT_BUILD_CORE_LIB
+#ifdef __cplusplus // zlib is written in C, and does not like about the implementation of QT_MODULE macro
 QT_MODULE(Core)
-#endif
+#endif // __cplusplus
+#endif // QT_BUILD_CORE_LIB
 
 QT_END_NAMESPACE
 QT_END_HEADER
@@ -80,7 +82,12 @@ QT_END_HEADER
 errno_t qt_wince_getenv_s(size_t*, char*, size_t, const char*);
 errno_t qt_wince__putenv_s(const char*, const char*);
 
+// Std --------------------------------------------------------------
 #ifdef __cplusplus // have this as tiff plugin is written in C
+namespace std {
+    template <class T> inline T floor(const T& a) {return ::floor(a);}
+}
+
 extern "C" {
 #endif
 
@@ -182,6 +189,16 @@ FILE   *qt_wince_fdopen(int handle, const char *mode);
 void    qt_wince_rewind( FILE *stream );
 int     qt_wince___fileno(FILE *);
 FILE   *qt_wince_tmpfile( void );
+
+//For zlib we need these helper functions, but they break the build when
+//set globally, so just set them for zlib use
+#ifdef ZLIB_H
+#define open qt_wince_open
+#define close qt_wince__close
+#define lseek qt_wince__lseek
+#define read qt_wince__read
+#define write qt_wince__write
+#endif
 
 int qt_wince__mkdir(const char *dirname);
 int qt_wince__rmdir(const char *dirname);

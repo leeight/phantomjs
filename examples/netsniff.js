@@ -25,6 +25,12 @@ function createHAR(address, title, startTime, resources)
             return;
         }
 
+        // Exclude Data URI from HAR file because
+        // they aren't included in specification
+        if (request.url.match(/(^data:image\/.*)/i)) {
+            return;
+	}
+
         entries.push({
             startedDateTime: request.time.toISOString(),
             time: endReply.time - request.time,
@@ -61,7 +67,8 @@ function createHAR(address, title, startTime, resources)
                 wait: startReply.time - request.time,
                 receive: endReply.time - startReply.time,
                 ssl: -1
-            }
+            },
+            pageref: address
         });
     });
 
@@ -77,7 +84,9 @@ function createHAR(address, title, startTime, resources)
                 startedDateTime: startTime.toISOString(),
                 id: address,
                 title: title,
-                pageTimings: {}
+                pageTimings: {
+                    onLoad: page.endTime - page.startTime
+                }
             }],
             entries: entries
         }
@@ -88,7 +97,7 @@ var page = require('webpage').create(),
     system = require('system');
 
 if (system.args.length === 1) {
-    console.log('Usage: netsniff.coffee <some URL>');
+    console.log('Usage: netsniff.js <some URL>');
     phantom.exit(1);
 } else {
 
@@ -120,13 +129,15 @@ if (system.args.length === 1) {
         var har;
         if (status !== 'success') {
             console.log('FAIL to load the address');
+            phantom.exit(1);
         } else {
+            page.endTime = new Date();
             page.title = page.evaluate(function () {
                 return document.title;
             });
             har = createHAR(page.address, page.title, page.startTime, page.resources);
             console.log(JSON.stringify(har, undefined, 4));
+            phantom.exit();
         }
-        phantom.exit();
     });
 }

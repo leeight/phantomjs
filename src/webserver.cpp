@@ -2,6 +2,7 @@
   This file is part of the PhantomJS project from Ofi Labs.
 
   Copyright (C) 2011 Klarälvdalens Datakonsult AB, a KDAB Group company, info@kdab.com
+  Copyright (C) 2011 Ivan De Marino <ivan.de.marino@gmail.com>
   Author: Milian Wolff <milian.wolff@kdab.com>
 
   Redistribution and use in source and binary forms, with or without
@@ -30,7 +31,9 @@
 
 #include "webserver.h"
 
+#include "encoding.h"
 #include "mongoose/mongoose.h"
+#include "consts.h"
 
 #include <QByteArray>
 #include <QHostAddress>
@@ -90,9 +93,8 @@ static void *callback(mg_event event,
     }
 }
 
-WebServer::WebServer(QObject *parent, Config *config)
-    : REPLCompletable(parent)
-    , m_config(config)
+WebServer::WebServer(QObject *parent)
+    : QObject(parent)
     , m_ctx(0)
 {
     setObjectName("WebServer");
@@ -106,9 +108,9 @@ WebServer::~WebServer()
 
 bool WebServer::listenOnPort(const QString& port, const QVariantMap& opts)
 {
-    ///TODO: listen on multiple ports?
     close();
 
+    // Create options vector
     QVector<const char*> options;
     options <<  "listening_ports" << qstrdup(qPrintable(port));
     options << "enable_directory_listing" << "no";
@@ -116,7 +118,8 @@ bool WebServer::listenOnPort(const QString& port, const QVariantMap& opts)
         options << "enable_keep_alive" << "yes";
     }
     options << NULL;
-    ///TODO: more options from m_config?
+
+    // Start the server
     m_ctx = mg_start(&callback, this, options.data());
     if (!m_ctx) {
         return false;
@@ -164,6 +167,11 @@ bool WebServer::handleRequest(mg_event event, mg_connection *conn, const mg_requ
 
     ///TODO: encoding?!
 
+    qDebug() << "HTTP Request - URI" << request->uri;
+    qDebug() << "HTTP Request - Method" << request->request_method;
+    qDebug() << "HTTP Request - HTTP Version" << request->http_version;
+    qDebug() << "HTTP Request - Query String" << request->query_string;
+
     if (request->request_method)
         requestObject["method"] = QString::fromLocal8Bit(request->request_method);
     if (request->http_version)
@@ -188,18 +196,20 @@ bool WebServer::handleRequest(mg_event event, mg_connection *conn, const mg_requ
 #endif
 
     QVariantMap headersObject;
+    QMap<QString, QString> ciHeadersObject;               //< FIXME: "case-insensitive" Headers. This shows how desperately we need a better HTTP Server
     for (int i = 0; i < request->num_headers; ++i) {
         QString key = QString::fromLocal8Bit(request->http_headers[i].name);
         QString value = QString::fromLocal8Bit(request->http_headers[i].value);
         qDebug() << "HTTP Request - Receiving Header" << key << "=" << value;
         headersObject[key] = value;
+        ciHeadersObject[key.toLower()] = value;
     }
     requestObject["headers"] = headersObject;
 
     // Read request body ONLY for POST and PUT, and ONLY if the "Content-Length" is provided
-    if ((requestObject["method"] == "POST" || requestObject["method"] == "PUT") && headersObject.contains("Content-Length")) {
+    if ((requestObject["method"] == "POST" || requestObject["method"] == "PUT") && ciHeadersObject.contains(HTTP_HEADER_CONTENT_LENGTH)) {
         bool contentLengthKnown = false;
-        uint contentLength = headersObject["Content-Length"].toUInt(&contentLengthKnown);
+        uint contentLength = ciHeadersObject[HTTP_HEADER_CONTENT_LENGTH].toUInt(&contentLengthKnown);
 
         qDebug() << "HTTP Request - Method POST/PUT";
 
@@ -213,11 +223,11 @@ bool WebServer::handleRequest(mg_event event, mg_connection *conn, const mg_requ
             qDebug() << "HTTP Request - Content Body:" << qPrintable(data);
 
             // Check if the 'Content-Type' requires decoding
-            if (headersObject["Content-Type"] == "application/x-www-form-urlencoded") {
+            if (ciHeadersObject[HTTP_HEADER_CONTENT_TYPE] == "application/x-www-form-urlencoded") {
                 requestObject["post"] = UrlEncodedParser::parse(QByteArray(data, read));
-                requestObject["postRaw"] = QString::fromLocal8Bit(data, read);
+                requestObject["postRaw"] = QString::fromUtf8(data, read);
             } else {
-                requestObject["post"] = QString::fromLocal8Bit(data, read);
+                requestObject["post"] = QString::fromUtf8(data, read);
             }
             delete[] data;
         } else {
@@ -261,23 +271,11 @@ bool WebServer::handleRequest(mg_event event, mg_connection *conn, const mg_requ
     return true;
 }
 
-void WebServer::initCompletions()
-{
-    // Add completion for the Dynamic Properties of the 'webpage' object
-    // properties
-    addCompletion("clipRect");
-    // functions
-    addCompletion("listen");
-    addCompletion("close");
-    // callbacks
-    addCompletion("onNewRequest");
-}
-
 
 //BEGIN WebServerResponse
 
 WebServerResponse::WebServerResponse(mg_connection* conn, QSemaphore* close)
-    : REPLCompletable()
+    : QObject()
     , m_conn(conn)
     , m_statusCode(200)
     , m_headersSent(false)
@@ -383,6 +381,7 @@ void WebServerResponse::writeHead(int statusCode, const QVariantMap &headers)
     m_headersSent = true;
     m_statusCode = statusCode;
     mg_printf(m_conn, "HTTP/1.1 %d %s\r\n", m_statusCode, responseCodeString(m_statusCode));
+    qDebug() << "HTTP Response - Status Code" << m_statusCode << responseCodeString(m_statusCode);
     QVariantMap::const_iterator it = headers.constBegin();
     while(it != headers.constEnd()) {
         qDebug() << "HTTP Response - Sending Header" << it.key() << "=" << it.value().toString();
@@ -392,14 +391,29 @@ void WebServerResponse::writeHead(int statusCode, const QVariantMap &headers)
     mg_write(m_conn, "\r\n", 2);
 }
 
-void WebServerResponse::write(const QString &body)
+void WebServerResponse::write(const QVariant &body)
 {
     if (!m_headersSent) {
         writeHead(m_statusCode, m_headers);
     }
-    ///TODO: encoding?!
-    const QByteArray data = body.toLocal8Bit();
+
+    QByteArray data;
+    if (m_encoding.isEmpty()) {
+        data = body.toString().toUtf8();
+    } else if (m_encoding.toLower() == "binary") {
+        data = body.toByteArray();
+    } else {
+        Encoding encoding;
+        encoding.setEncoding(m_encoding);
+        data = encoding.encode(body.toString());
+    }
+
     mg_write(m_conn, data.constData(), data.size());
+}
+
+void WebServerResponse::setEncoding(const QString &encoding)
+{
+    m_encoding = encoding;
 }
 
 void WebServerResponse::close()
@@ -447,17 +461,6 @@ void WebServerResponse::setHeaders(const QVariantMap &headers)
     ///TODO: what is the best-practice error handling in javascript? exceptions?
     Q_ASSERT(!m_headersSent);
     m_headers = headers;
-}
-
-void WebServerResponse::initCompletions()
-{
-    // Add completion for the Dynamic Properties of the 'webpage' object
-    // properties
-    addCompletion("statusCode");
-    addCompletion("headers");
-    // functions
-    addCompletion("writeHead");
-    addCompletion("write");
 }
 
 //END WebServerResponse

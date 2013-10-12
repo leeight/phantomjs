@@ -1,38 +1,38 @@
 /****************************************************************************
 **
-** Copyright (C) 2011 Nokia Corporation and/or its subsidiary(-ies).
-** All rights reserved.
-** Contact: Nokia Corporation (qt-info@nokia.com)
+** Copyright (C) 2012 Digia Plc and/or its subsidiary(-ies).
+** Contact: http://www.qt-project.org/legal
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
-** GNU Lesser General Public License Usage
-** This file may be used under the terms of the GNU Lesser General Public
-** License version 2.1 as published by the Free Software Foundation and
-** appearing in the file LICENSE.LGPL included in the packaging of this
-** file. Please review the following information to ensure the GNU Lesser
-** General Public License version 2.1 requirements will be met:
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and Digia.  For licensing terms and
+** conditions see http://qt.digia.com/licensing.  For further information
+** use the contact form at http://qt.digia.com/contact-us.
 **
-** In addition, as a special exception, Nokia gives you certain additional
-** rights. These rights are described in the Nokia Qt LGPL Exception
+** GNU Lesser General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU Lesser
+** General Public License version 2.1 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU Lesser General Public License version 2.1 requirements
+** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+**
+** In addition, as a special exception, Digia gives you certain additional
+** rights.  These rights are described in the Digia Qt LGPL Exception
 ** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
 **
 ** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU General
-** Public License version 3.0 as published by the Free Software Foundation
-** and appearing in the file LICENSE.GPL included in the packaging of this
-** file. Please review the following information to ensure the GNU General
-** Public License version 3.0 requirements will be met:
-** http://www.gnu.org/copyleft/gpl.html.
-**
-** Other Usage
-** Alternatively, this file may be used in accordance with the terms and
-** conditions contained in a signed written agreement between you and Nokia.
-**
-**
-**
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3.0 as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU General Public License version 3.0 requirements will be
+** met: http://www.gnu.org/copyleft/gpl.html.
 **
 **
 ** $QT_END_LICENSE$
@@ -191,18 +191,15 @@ bool QFSFileEnginePrivate::nativeOpen(QIODevice::OpenMode openMode)
     if(openMode & QIODevice::Text)
         symbianMode |= EFileStreamText;
 
-    // pre Symbian 9.4, file I/O is always unbuffered, and the enum values don't exist
-    if(QSysInfo::symbianVersion() >= QSysInfo::SV_9_4) {
-        if (openMode & QFile::Unbuffered) {
-            if (openMode & QIODevice::WriteOnly)
-                symbianMode |= 0x00001000; //EFileWriteDirectIO;
-            // ### Unbuffered read is not used, because it prevents file open in /resource
-            // ### and has no obvious benefits
-        } else {
-            if (openMode & QIODevice::WriteOnly)
-                symbianMode |= 0x00000800; //EFileWriteBuffered;
-            // use implementation defaults for read buffering
-        }
+    if (openMode & QFile::Unbuffered) {
+        if (openMode & QIODevice::WriteOnly)
+            symbianMode |= 0x00001000; //EFileWriteDirectIO;
+        // ### Unbuffered read is not used, because it prevents file open in /resource
+        // ### and has no obvious benefits
+    } else {
+        if (openMode & QIODevice::WriteOnly)
+            symbianMode |= 0x00000800; //EFileWriteBuffered;
+        // use implementation defaults for read buffering
     }
 
     // Until Qt supports file sharing, we can't support EFileShareReadersOrWriters safely,
@@ -1058,22 +1055,24 @@ uchar *QFSFileEnginePrivate::map(qint64 offset, qint64 size, QFile::MemoryMapFla
     TInt nativeMapError = KErrNone;
     RFileMap mapping;
     TUint mode(EFileMapRemovableMedia);
+    TUint64 nativeOffset = offset & ~(mapping.PageSizeInBytes() - 1);
+
     //If the file was opened for write or read/write, then open the map for read/write
     if (openMode & QIODevice::WriteOnly)
         mode |= EFileMapWrite;
     if (symbianFile.SubSessionHandle()) {
-        nativeMapError = mapping.Open(symbianFile, offset, size, mode);
+        nativeMapError = mapping.Open(symbianFile, nativeOffset, size, mode);
     } else {
         //map file by name if we don't have a native handle
         QString fn = QFileSystemEngine::absoluteName(fileEntry).nativeFilePath();
         TUint filemode = EFileShareReadersOrWriters | EFileRead;
         if (openMode & QIODevice::WriteOnly)
             filemode |= EFileWrite;
-        nativeMapError = mapping.Open(qt_s60GetRFs(), qt_QString2TPtrC(fn), filemode, offset, size, mode);
+        nativeMapError = mapping.Open(qt_s60GetRFs(), qt_QString2TPtrC(fn), filemode, nativeOffset, size, mode);
     }
     if (nativeMapError == KErrNone) {
         QScopedResource<RFileMap> ptr(mapping); //will call Close if adding to mapping throws an exception
-        uchar *address = mapping.Base();
+        uchar *address = mapping.Base() + (offset - nativeOffset);
         maps[address] = mapping;
         ptr.take();
         return address;

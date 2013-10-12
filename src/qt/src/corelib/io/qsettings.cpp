@@ -1,38 +1,38 @@
 /****************************************************************************
 **
-** Copyright (C) 2011 Nokia Corporation and/or its subsidiary(-ies).
-** All rights reserved.
-** Contact: Nokia Corporation (qt-info@nokia.com)
+** Copyright (C) 2012 Digia Plc and/or its subsidiary(-ies).
+** Contact: http://www.qt-project.org/legal
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
-** GNU Lesser General Public License Usage
-** This file may be used under the terms of the GNU Lesser General Public
-** License version 2.1 as published by the Free Software Foundation and
-** appearing in the file LICENSE.LGPL included in the packaging of this
-** file. Please review the following information to ensure the GNU Lesser
-** General Public License version 2.1 requirements will be met:
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and Digia.  For licensing terms and
+** conditions see http://qt.digia.com/licensing.  For further information
+** use the contact form at http://qt.digia.com/contact-us.
 **
-** In addition, as a special exception, Nokia gives you certain additional
-** rights. These rights are described in the Nokia Qt LGPL Exception
+** GNU Lesser General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU Lesser
+** General Public License version 2.1 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU Lesser General Public License version 2.1 requirements
+** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+**
+** In addition, as a special exception, Digia gives you certain additional
+** rights.  These rights are described in the Digia Qt LGPL Exception
 ** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
 **
 ** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU General
-** Public License version 3.0 as published by the Free Software Foundation
-** and appearing in the file LICENSE.GPL included in the packaging of this
-** file. Please review the following information to ensure the GNU General
-** Public License version 3.0 requirements will be met:
-** http://www.gnu.org/copyleft/gpl.html.
-**
-** Other Usage
-** Alternatively, this file may be used in accordance with the terms and
-** conditions contained in a signed written agreement between you and Nokia.
-**
-**
-**
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3.0 as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU General Public License version 3.0 requirements will be
+** met: http://www.gnu.org/copyleft/gpl.html.
 **
 **
 ** $QT_END_LICENSE$
@@ -790,6 +790,9 @@ bool QSettingsPrivate::iniUnescapedStringList(const QByteArray &str, int from, i
                                               QString &stringResult, QStringList &stringListResult,
                                               QTextCodec *codec)
 {
+#ifdef QT_NO_TEXTCODE
+    Q_UNUSED(codec);
+#endif
     static const char escapeCodes[][2] =
     {
         { 'a', '\a' },
@@ -2433,6 +2436,27 @@ void QConfFileSettingsPrivate::ensureSectionParsed(QConfFile *confFile,
 
     Note that this may affect framework libraries' functionality if they expect
     the settings to be shared between applications.
+
+    \section2 Changing the location of global Qt settings on Mac OS X
+
+    On Mac OS X, the global Qt settings (stored in \c com.trolltech.plist)
+    are stored in the application settings file in two situations:
+
+    \list 1
+    \o If the application runs in a Mac OS X sandbox (on Mac OS X 10.7 or later) or
+    \o If the \c Info.plist file of the application contains the key \c "ForAppStore" with the value \c "yes"
+    \endlist
+
+    In these situations, the application settings file is named using
+    the bundle identifier of the application, which must consequently
+    be set in the application's \c Info.plist file.
+
+    This feature is provided to ease the acceptance of Qt applications into
+    the Mac App Store, as the default behaviour of storing global Qt
+    settings in the \c com.trolltech.plist file does not conform with Mac
+    App Store file system usage requirements. For more information
+    about submitting Qt applications to the Mac App Store, see
+    \l{mac-differences.html#Preparing a Qt application for Mac App Store submission}{Preparing a Qt application for Mac App Store submission}.
 
     \section2 Platform Limitations
 

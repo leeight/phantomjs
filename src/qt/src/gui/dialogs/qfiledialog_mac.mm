@@ -1,38 +1,38 @@
 /****************************************************************************
 **
-** Copyright (C) 2011 Nokia Corporation and/or its subsidiary(-ies).
-** All rights reserved.
-** Contact: Nokia Corporation (qt-info@nokia.com)
+** Copyright (C) 2012 Digia Plc and/or its subsidiary(-ies).
+** Contact: http://www.qt-project.org/legal
 **
 ** This file is part of the QtGui module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
-** GNU Lesser General Public License Usage
-** This file may be used under the terms of the GNU Lesser General Public
-** License version 2.1 as published by the Free Software Foundation and
-** appearing in the file LICENSE.LGPL included in the packaging of this
-** file. Please review the following information to ensure the GNU Lesser
-** General Public License version 2.1 requirements will be met:
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and Digia.  For licensing terms and
+** conditions see http://qt.digia.com/licensing.  For further information
+** use the contact form at http://qt.digia.com/contact-us.
 **
-** In addition, as a special exception, Nokia gives you certain additional
-** rights. These rights are described in the Nokia Qt LGPL Exception
+** GNU Lesser General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU Lesser
+** General Public License version 2.1 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU Lesser General Public License version 2.1 requirements
+** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+**
+** In addition, as a special exception, Digia gives you certain additional
+** rights.  These rights are described in the Digia Qt LGPL Exception
 ** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
 **
 ** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU General
-** Public License version 3.0 as published by the Free Software Foundation
-** and appearing in the file LICENSE.GPL included in the packaging of this
-** file. Please review the following information to ensure the GNU General
-** Public License version 3.0 requirements will be met:
-** http://www.gnu.org/copyleft/gpl.html.
-**
-** Other Usage
-** Alternatively, this file may be used in accordance with the terms and
-** conditions contained in a signed written agreement between you and Nokia.
-**
-**
-**
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3.0 as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU General Public License version 3.0 requirements will be
+** met: http://www.gnu.org/copyleft/gpl.html.
 **
 **
 ** $QT_END_LICENSE$
@@ -154,7 +154,8 @@ QT_USE_NAMESPACE
         mOpenPanel = 0;
     }
 
-    [mSavePanel setLevel:NSModalPanelWindowLevel];
+    if ([mSavePanel respondsToSelector:@selector(setLevel:)])
+        [mSavePanel setLevel:NSModalPanelWindowLevel];
     [mSavePanel setDelegate:self];
     mQDirFilter = new QT_PREPEND_NAMESPACE(QDir::Filters)(qDirFilter);
     mFileOptions = new QT_PREPEND_NAMESPACE(QFileDialog::Options)(fileOptions);
@@ -204,7 +205,8 @@ QT_USE_NAMESPACE
     delete mSelectedNameFilter;
     delete mCurrentSelection;
 
-    [mSavePanel orderOut:mSavePanel];
+    if ([mSavePanel respondsToSelector:@selector(orderOut:)])
+        [mSavePanel orderOut:mSavePanel];
     [mSavePanel setAccessoryView:nil];
     [mPopUpButton release];
     [mTextField release];
@@ -224,7 +226,8 @@ QT_USE_NAMESPACE
 - (void)closePanel
 {
     *mCurrentSelection = QT_PREPEND_NAMESPACE(qt_mac_NSStringToQString)([mSavePanel filename]);
-    [mSavePanel close];
+    if ([mSavePanel respondsToSelector:@selector(close)])
+        [mSavePanel close];
 }
 
 - (void)showModelessPanel
@@ -361,7 +364,8 @@ QT_USE_NAMESPACE
     Q_UNUSED(sender);
     QString selection = mNameFilterDropDownList->value([mPopUpButton indexOfSelectedItem]);
     *mSelectedNameFilter = [self findStrippedFilterWithVisualFilterName:selection];
-    [mSavePanel validateVisibleColumns];
+    if ([mSavePanel respondsToSelector:@selector(validateVisibleColumns)])
+        [mSavePanel validateVisibleColumns];
     [self updateProperties];
     if (mPriv)
         mPriv->QNSOpenSavePanelDelegate_filterSelected([mPopUpButton indexOfSelectedItem]);
@@ -406,8 +410,11 @@ QT_USE_NAMESPACE
         ext.prepend(mPriv->defaultSuffix);
     [mSavePanel setAllowedFileTypes:ext.isEmpty() ? nil : QT_PREPEND_NAMESPACE(qt_mac_QStringListToNSMutableArray(ext))];
 
-    if ([mSavePanel isVisible])
-        [mOpenPanel validateVisibleColumns];
+    if ([mSavePanel respondsToSelector:@selector(isVisible)] && [mSavePanel isVisible])
+    {
+        if ([mOpenPanel respondsToSelector:@selector(validateVisibleColumns)])
+            [mOpenPanel validateVisibleColumns];
+    }
 }
 
 - (void)panelSelectionDidChange:(id)sender
@@ -1082,7 +1089,7 @@ bool QFileDialogPrivate::showCocoaFilePanel()
     QT_MANGLE_NAMESPACE(QNSOpenSavePanelDelegate) *delegate = static_cast<QT_MANGLE_NAMESPACE(QNSOpenSavePanelDelegate) *>(mDelegate);
     if (qt_mac_is_macsheet(q))
         [delegate showWindowModalSheet:q->parentWidget()];
-    else
+    else if (!q->testAttribute(Qt::WA_ShowModal))
         [delegate showModelessPanel];
     return true;
 }

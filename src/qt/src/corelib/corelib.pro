@@ -20,12 +20,12 @@ include(statemachine/statemachine.pri)
 include(xml/xml.pri)
 
 !qpa:mac|darwin:LIBS_PRIVATE += -framework ApplicationServices
-qpa {
-    contains(QT_CONFIG, coreservices) {
-        LIBS_PRIVATE += -framework CoreServices
+qpa:mac {
+    !ios {
+        LIBS_PRIVATE += -framework CoreServices -framework Security
     }
 } else:mac|darwin {
-        LIBS_PRIVATE += -framework CoreFoundation
+        LIBS_PRIVATE += -framework CoreFoundation -framework Security
 }
 mac:lib_bundle:DEFINES += QT_NO_DEBUG_PLUGIN_CHECK
 win32:DEFINES-=QT_NO_CAST_TO_ASCII

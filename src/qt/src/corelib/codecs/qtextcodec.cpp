@@ -1,38 +1,38 @@
 /****************************************************************************
 **
-** Copyright (C) 2011 Nokia Corporation and/or its subsidiary(-ies).
-** All rights reserved.
-** Contact: Nokia Corporation (qt-info@nokia.com)
+** Copyright (C) 2012 Digia Plc and/or its subsidiary(-ies).
+** Contact: http://www.qt-project.org/legal
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
-** GNU Lesser General Public License Usage
-** This file may be used under the terms of the GNU Lesser General Public
-** License version 2.1 as published by the Free Software Foundation and
-** appearing in the file LICENSE.LGPL included in the packaging of this
-** file. Please review the following information to ensure the GNU Lesser
-** General Public License version 2.1 requirements will be met:
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and Digia.  For licensing terms and
+** conditions see http://qt.digia.com/licensing.  For further information
+** use the contact form at http://qt.digia.com/contact-us.
 **
-** In addition, as a special exception, Nokia gives you certain additional
-** rights. These rights are described in the Nokia Qt LGPL Exception
+** GNU Lesser General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU Lesser
+** General Public License version 2.1 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU Lesser General Public License version 2.1 requirements
+** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+**
+** In addition, as a special exception, Digia gives you certain additional
+** rights.  These rights are described in the Digia Qt LGPL Exception
 ** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
 **
 ** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU General
-** Public License version 3.0 as published by the Free Software Foundation
-** and appearing in the file LICENSE.GPL included in the packaging of this
-** file. Please review the following information to ensure the GNU General
-** Public License version 3.0 requirements will be met:
-** http://www.gnu.org/copyleft/gpl.html.
-**
-** Other Usage
-** Alternatively, this file may be used in accordance with the terms and
-** conditions contained in a signed written agreement between you and Nokia.
-**
-**
-**
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3.0 as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU General Public License version 3.0 requirements will be
+** met: http://www.gnu.org/copyleft/gpl.html.
 **
 **
 ** $QT_END_LICENSE$
@@ -47,6 +47,7 @@
 
 #include "qlist.h"
 #include "qfile.h"
+#include "qvarlengtharray.h"
 #ifndef QT_NO_LIBRARY
 # include "qcoreapplication.h"
 # include "qtextcodecplugin.h"
@@ -65,7 +66,7 @@
 #  include "qtsciicodec_p.h"
 #  include "qisciicodec_p.h"
 #if !defined(Q_OS_SYMBIAN) && !defined(Q_OS_INTEGRITY)
-#  if defined(QT_NO_ICONV) && !defined(QT_BOOTSTRAPPED)
+#  if defined(QT_NO_ICONV) && !defined(QT_BOOTSTRAPPED) && !defined(QT_CODEC_PLUGINS)
 // no iconv(3) support, must build all codecs into the library
 #    include "../../plugins/codecs/cn/qgb18030codec.h"
 #    include "../../plugins/codecs/jp/qeucjpcodec.h"
@@ -73,7 +74,7 @@
 #    include "../../plugins/codecs/jp/qsjiscodec.h"
 #    include "../../plugins/codecs/kr/qeuckrcodec.h"
 #    include "../../plugins/codecs/tw/qbig5codec.h"
-#  endif // QT_NO_ICONV
+#  endif // QT_NO_ICONV && !QT_BOOTSTRAPPED && !QT_CODEC_PLUGINS
 #  if defined(Q_WS_X11) && !defined(QT_BOOTSTRAPPED)
 #    include "qfontlaocodec_p.h"
 #    include "../../plugins/codecs/jp/qfontjpcodec.h"
@@ -274,10 +275,7 @@ QString QWindowsLocalCodec::convertToUnicode(const char *chars, int length, Conv
     if (!mb || !mblen)
         return QString();
 
-    const int wclen_auto = 4096;
-    wchar_t wc_auto[wclen_auto];
-    int wclen = wclen_auto;
-    wchar_t *wc = wc_auto;
+    QVarLengthArray<wchar_t, 4096> wc(4096);
     int len;
     QString sp;
     bool prepend = false;
@@ -297,7 +295,7 @@ QString QWindowsLocalCodec::convertToUnicode(const char *chars, int length, Conv
         prev[1] = mb[0];
         remainingChars = 0;
         len = MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED,
-                                    prev, 2, wc, wclen);
+                                    prev, 2, wc.data(), wc.size());
         if (len) {
             prepend = true;
             sp.append(QChar(wc[0]));
@@ -308,18 +306,12 @@ QString QWindowsLocalCodec::convertToUnicode(const char *chars, int length, Conv
     }
 
     while (!(len=MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED|MB_ERR_INVALID_CHARS,
-                mb, mblen, wc, wclen))) {
+                mb, mblen, wc.data(), wc.size()))) {
         int r = GetLastError();
         if (r == ERROR_INSUFFICIENT_BUFFER) {
-            if (wc != wc_auto) {
-                qWarning("MultiByteToWideChar: Size changed");
-                break;
-            } else {
-                wclen = MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED,
+                const int wclen = MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED,
                                     mb, mblen, 0, 0);
-                wc = new wchar_t[wclen];
-                // and try again...
-            }
+                wc.resize(wclen);
         } else if (r == ERROR_NO_UNICODE_TRANSLATION) {
             //find the last non NULL character
             while (mblen > 1  && !(mb[mblen-1]))
@@ -337,8 +329,10 @@ QString QWindowsLocalCodec::convertToUnicode(const char *chars, int length, Conv
             break;
         }
     }
+
     if (len <= 0)
         return QString();
+
     if (wc[len-1] == 0) // len - 1: we don't want terminator
         --len;
 
@@ -347,9 +341,7 @@ QString QWindowsLocalCodec::convertToUnicode(const char *chars, int length, Conv
         state->state_data[0] = (char)state_data;
         state->remainingChars = remainingChars;
     }
-    QString s((QChar*)wc, len);
-    if (wc != wc_auto)
-        delete [] wc;
+    QString s((QChar*)wc.data(), len);
     if (prepend) {
         return sp+s;
     }
@@ -413,7 +405,7 @@ QString QWindowsLocalCodec::convertToUnicodeCharByChar(const char *chars, int le
         s.append(QChar(ws[i]));
     delete [] ws;
 #endif
-    delete mbcs;
+    delete [] mbcs;
     return s;
 }
 
@@ -774,7 +766,7 @@ static void setup()
 
 
 #if !defined(Q_OS_SYMBIAN) && !defined(Q_OS_INTEGRITY)
-#  if defined(QT_NO_ICONV) && !defined(QT_BOOTSTRAPPED)
+#  if defined(QT_NO_ICONV) && !defined(QT_BOOTSTRAPPED) && !defined(QT_CODEC_PLUGINS)
     // no asian codecs when bootstrapping, sorry
     (void)new QGb18030Codec;
     (void)new QGbkCodec;
@@ -786,7 +778,7 @@ static void setup()
     (void)new QCP949Codec;
     (void)new QBig5Codec;
     (void)new QBig5hkscsCodec;
-#  endif // QT_NO_ICONV && !QT_BOOTSTRAPPED
+#  endif // QT_NO_ICONV && !QT_BOOTSTRAPPED && !QT_CODEC_PLUGINS
 #endif //Q_OS_SYMBIAN
 #endif // QT_NO_CODECS
 

@@ -1,38 +1,38 @@
 /****************************************************************************
 **
-** Copyright (C) 2011 Nokia Corporation and/or its subsidiary(-ies).
-** All rights reserved.
-** Contact: Nokia Corporation (qt-info@nokia.com)
+** Copyright (C) 2012 Digia Plc and/or its subsidiary(-ies).
+** Contact: http://www.qt-project.org/legal
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
-** GNU Lesser General Public License Usage
-** This file may be used under the terms of the GNU Lesser General Public
-** License version 2.1 as published by the Free Software Foundation and
-** appearing in the file LICENSE.LGPL included in the packaging of this
-** file. Please review the following information to ensure the GNU Lesser
-** General Public License version 2.1 requirements will be met:
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and Digia.  For licensing terms and
+** conditions see http://qt.digia.com/licensing.  For further information
+** use the contact form at http://qt.digia.com/contact-us.
 **
-** In addition, as a special exception, Nokia gives you certain additional
-** rights. These rights are described in the Nokia Qt LGPL Exception
+** GNU Lesser General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU Lesser
+** General Public License version 2.1 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU Lesser General Public License version 2.1 requirements
+** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+**
+** In addition, as a special exception, Digia gives you certain additional
+** rights.  These rights are described in the Digia Qt LGPL Exception
 ** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
 **
 ** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU General
-** Public License version 3.0 as published by the Free Software Foundation
-** and appearing in the file LICENSE.GPL included in the packaging of this
-** file. Please review the following information to ensure the GNU General
-** Public License version 3.0 requirements will be met:
-** http://www.gnu.org/copyleft/gpl.html.
-**
-** Other Usage
-** Alternatively, this file may be used in accordance with the terms and
-** conditions contained in a signed written agreement between you and Nokia.
-**
-**
-**
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3.0 as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU General Public License version 3.0 requirements will be
+** met: http://www.gnu.org/copyleft/gpl.html.
 **
 **
 ** $QT_END_LICENSE$
@@ -45,6 +45,13 @@
 #include "qdir.h"
 #include "qvarlengtharray.h"
 #include "private/qcore_mac_p.h"
+#ifndef QT_BOOTSTRAPPED
+#include "qcoreapplication.h"
+#endif
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_6
+#include <Security/SecCode.h>
+#include <Security/SecRequirement.h>
+#endif
 
 QT_BEGIN_NAMESPACE
 
@@ -343,6 +350,7 @@ class QMacSettingsPrivate : public QSettingsPrivate
 public:
     QMacSettingsPrivate(QSettings::Scope scope, const QString &organization,
                         const QString &application);
+    QMacSettingsPrivate(CFStringRef bundleIdentifier);
     ~QMacSettingsPrivate();
 
     void remove(const QString &key);
@@ -420,6 +428,22 @@ QMacSettingsPrivate::QMacSettingsPrivate(QSettings::Scope scope, const QString &
     }
 
     hostName = (scope == QSettings::SystemScope) ? kCFPreferencesCurrentHost : kCFPreferencesAnyHost;
+    sync();
+}
+
+QMacSettingsPrivate::QMacSettingsPrivate(CFStringRef bundleIdentifier)
+    : QSettingsPrivate(QSettings::NativeFormat, QSettings::UserScope, QString(), QString())
+{
+    // applicationId and suiteId are QCFStrings and take ownership, retain to prevent double deletes.
+    CFRetain(bundleIdentifier);
+    applicationId = bundleIdentifier;
+    CFRetain(bundleIdentifier);
+    suiteId = bundleIdentifier;
+
+    numDomains = 1;
+    domains[0].userName = kCFPreferencesCurrentUser;
+    domains[0].applicationOrSuiteId = bundleIdentifier;
+    hostName = kCFPreferencesAnyHost;
     sync();
 }
 
@@ -579,6 +603,64 @@ QSettingsPrivate *QSettingsPrivate::create(QSettings::Format format,
                                            const QString &organization,
                                            const QString &application)
 {
+#ifndef QT_BOOTSTRAPPED
+    static bool useAppLocalStorage = false;
+    static bool initialized = false;
+
+    if (!initialized) {
+        bool inSandbox = false;
+
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_6
+        // If we are running on at least 10.7.0 and have the com.apple.security.app-sandbox
+        // entitlement, we are in a sandbox
+        SInt32 version = 0;
+        Gestalt(gestaltSystemVersion, &version);
+        SecCodeRef secCodeSelf;
+        if (version >= 0x1070 && SecCodeCopySelf(kSecCSDefaultFlags, &secCodeSelf) == errSecSuccess) {
+            SecRequirementRef sandboxReq;
+            CFStringRef entitlement = CFSTR("entitlement [\"com.apple.security.app-sandbox\"]");
+            if (SecRequirementCreateWithString(entitlement, kSecCSDefaultFlags, &sandboxReq) == errSecSuccess) {
+                if (SecCodeCheckValidity(secCodeSelf, kSecCSDefaultFlags, sandboxReq) == errSecSuccess)
+                    inSandbox = true;
+                CFRelease(sandboxReq);
+            }
+            CFRelease(secCodeSelf);
+        }
+#endif
+
+        bool forAppStore = false;
+        if (!inSandbox) {
+            CFTypeRef val = CFBundleGetValueForInfoDictionaryKey(CFBundleGetMainBundle(), CFSTR("ForAppStore"));
+            forAppStore = (val &&
+                           CFGetTypeID(val) == CFStringGetTypeID() &&
+                           CFStringCompare(CFStringRef(val), CFSTR("yes"), kCFCompareCaseInsensitive) == 0);
+        }
+
+        useAppLocalStorage = inSandbox || forAppStore;
+        initialized = true;
+    }
+
+    if (useAppLocalStorage) {
+        // Ensure that the global and app-local settings go to the same file, since that's
+        // what we really want
+        if (organization == QLatin1String("Trolltech") ||
+                organization.isEmpty() ||
+                (organization == qApp->organizationDomain() && application == qApp->applicationName()) ||
+                (organization == qApp->organizationName()) && application == qApp->applicationName())
+        {
+            CFStringRef bundleIdentifier = CFBundleGetIdentifier(CFBundleGetMainBundle());
+            if (!bundleIdentifier) {
+                qWarning("QSettingsPrivate::create: You must set the bundle identifier when using ForAppStore");
+            } else {
+                QSettingsPrivate* settings = new QMacSettingsPrivate(bundleIdentifier);
+                if (organization == QLatin1String("Trolltech"))
+                    settings->beginGroupOrArray(QSettingsGroup("QtLibrarySettings"));
+                return settings;
+            }
+        }
+   }
+#endif
+
     if (format == QSettings::NativeFormat) {
         return new QMacSettingsPrivate(scope, organization, application);
     } else {

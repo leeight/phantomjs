@@ -1,38 +1,38 @@
 /****************************************************************************
 **
-** Copyright (C) 2011 Nokia Corporation and/or its subsidiary(-ies).
-** All rights reserved.
-** Contact: Nokia Corporation (qt-info@nokia.com)
+** Copyright (C) 2012 Digia Plc and/or its subsidiary(-ies).
+** Contact: http://www.qt-project.org/legal
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
-** GNU Lesser General Public License Usage
-** This file may be used under the terms of the GNU Lesser General Public
-** License version 2.1 as published by the Free Software Foundation and
-** appearing in the file LICENSE.LGPL included in the packaging of this
-** file. Please review the following information to ensure the GNU Lesser
-** General Public License version 2.1 requirements will be met:
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and Digia.  For licensing terms and
+** conditions see http://qt.digia.com/licensing.  For further information
+** use the contact form at http://qt.digia.com/contact-us.
 **
-** In addition, as a special exception, Nokia gives you certain additional
-** rights. These rights are described in the Nokia Qt LGPL Exception
+** GNU Lesser General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU Lesser
+** General Public License version 2.1 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU Lesser General Public License version 2.1 requirements
+** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+**
+** In addition, as a special exception, Digia gives you certain additional
+** rights.  These rights are described in the Digia Qt LGPL Exception
 ** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
 **
 ** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU General
-** Public License version 3.0 as published by the Free Software Foundation
-** and appearing in the file LICENSE.GPL included in the packaging of this
-** file. Please review the following information to ensure the GNU General
-** Public License version 3.0 requirements will be met:
-** http://www.gnu.org/copyleft/gpl.html.
-**
-** Other Usage
-** Alternatively, this file may be used in accordance with the terms and
-** conditions contained in a signed written agreement between you and Nokia.
-**
-**
-**
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3.0 as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU General Public License version 3.0 requirements will be
+** met: http://www.gnu.org/copyleft/gpl.html.
 **
 **
 ** $QT_END_LICENSE$
@@ -95,6 +95,72 @@ QT_BEGIN_HEADER
 // SSE4.2 intrinsics
 #if defined(QT_HAVE_SSE4_2) && (defined(__SSE4_2__) || defined(Q_CC_MSVC))
 #include <nmmintrin.h>
+
+// Add missing intrisics in some compilers (e.g. llvm-gcc)
+#ifndef _SIDD_UBYTE_OPS
+#define _SIDD_UBYTE_OPS                 0x00
+#endif
+
+#ifndef _SIDD_UWORD_OPS
+#define _SIDD_UWORD_OPS                 0x01
+#endif
+
+#ifndef _SIDD_SBYTE_OPS
+#define _SIDD_SBYTE_OPS                 0x02
+#endif
+
+#ifndef _SIDD_SWORD_OPS
+#define _SIDD_SWORD_OPS                 0x03
+#endif
+
+#ifndef _SIDD_CMP_EQUAL_ANY
+#define _SIDD_CMP_EQUAL_ANY             0x00
+#endif
+
+#ifndef _SIDD_CMP_RANGES
+#define _SIDD_CMP_RANGES                0x04
+#endif
+
+#ifndef _SIDD_CMP_EQUAL_EACH
+#define _SIDD_CMP_EQUAL_EACH            0x08
+#endif
+
+#ifndef _SIDD_CMP_EQUAL_ORDERED
+#define _SIDD_CMP_EQUAL_ORDERED         0x0c
+#endif
+
+#ifndef _SIDD_POSITIVE_POLARITY
+#define _SIDD_POSITIVE_POLARITY         0x00
+#endif
+
+#ifndef _SIDD_NEGATIVE_POLARITY
+#define _SIDD_NEGATIVE_POLARITY         0x10
+#endif
+
+#ifndef _SIDD_MASKED_POSITIVE_POLARITY
+#define _SIDD_MASKED_POSITIVE_POLARITY  0x20
+#endif
+
+#ifndef _SIDD_MASKED_NEGATIVE_POLARITY
+#define _SIDD_MASKED_NEGATIVE_POLARITY  0x30
+#endif
+
+#ifndef _SIDD_LEAST_SIGNIFICANT
+#define _SIDD_LEAST_SIGNIFICANT         0x00
+#endif
+
+#ifndef _SIDD_MOST_SIGNIFICANT
+#define _SIDD_MOST_SIGNIFICANT          0x40
+#endif
+
+#ifndef _SIDD_BIT_MASK
+#define _SIDD_BIT_MASK                  0x00
+#endif
+
+#ifndef _SIDD_UNIT_MASK
+#define _SIDD_UNIT_MASK                 0x40
+#endif
+
 #endif
 
 // AVX intrinsics

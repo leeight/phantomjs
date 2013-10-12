@@ -1,38 +1,38 @@
 /****************************************************************************
 **
-** Copyright (C) 2011 Nokia Corporation and/or its subsidiary(-ies).
-** All rights reserved.
-** Contact: Nokia Corporation (qt-info@nokia.com)
+** Copyright (C) 2012 Digia Plc and/or its subsidiary(-ies).
+** Contact: http://www.qt-project.org/legal
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
-** GNU Lesser General Public License Usage
-** This file may be used under the terms of the GNU Lesser General Public
-** License version 2.1 as published by the Free Software Foundation and
-** appearing in the file LICENSE.LGPL included in the packaging of this
-** file. Please review the following information to ensure the GNU Lesser
-** General Public License version 2.1 requirements will be met:
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and Digia.  For licensing terms and
+** conditions see http://qt.digia.com/licensing.  For further information
+** use the contact form at http://qt.digia.com/contact-us.
 **
-** In addition, as a special exception, Nokia gives you certain additional
-** rights. These rights are described in the Nokia Qt LGPL Exception
+** GNU Lesser General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU Lesser
+** General Public License version 2.1 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU Lesser General Public License version 2.1 requirements
+** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+**
+** In addition, as a special exception, Digia gives you certain additional
+** rights.  These rights are described in the Digia Qt LGPL Exception
 ** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
 **
 ** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU General
-** Public License version 3.0 as published by the Free Software Foundation
-** and appearing in the file LICENSE.GPL included in the packaging of this
-** file. Please review the following information to ensure the GNU General
-** Public License version 3.0 requirements will be met:
-** http://www.gnu.org/copyleft/gpl.html.
-**
-** Other Usage
-** Alternatively, this file may be used in accordance with the terms and
-** conditions contained in a signed written agreement between you and Nokia.
-**
-**
-**
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3.0 as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU General Public License version 3.0 requirements will be
+** met: http://www.gnu.org/copyleft/gpl.html.
 **
 **
 ** $QT_END_LICENSE$
@@ -158,15 +158,39 @@ typedef VOID (WINAPI *PtrBuildTrusteeWithSidW)(PTRUSTEE_W, PSID);
 static PtrBuildTrusteeWithSidW ptrBuildTrusteeWithSidW = 0;
 typedef DWORD (WINAPI *PtrGetEffectiveRightsFromAclW)(PACL, PTRUSTEE_W, OUT PACCESS_MASK);
 static PtrGetEffectiveRightsFromAclW ptrGetEffectiveRightsFromAclW = 0;
-static TRUSTEE_W currentUserTrusteeW;
-static TRUSTEE_W worldTrusteeW;
-
 typedef BOOL (WINAPI *PtrGetUserProfileDirectoryW)(HANDLE, LPWSTR, LPDWORD);
 static PtrGetUserProfileDirectoryW ptrGetUserProfileDirectoryW = 0;
 typedef BOOL (WINAPI *PtrGetVolumePathNamesForVolumeNameW)(LPCWSTR,LPWSTR,DWORD,PDWORD);
 static PtrGetVolumePathNamesForVolumeNameW ptrGetVolumePathNamesForVolumeNameW = 0;
 QT_END_INCLUDE_NAMESPACE
 
+static TRUSTEE_W currentUserTrusteeW;
+static TRUSTEE_W worldTrusteeW;
+static PSID currentUserSID = 0;
+static PSID worldSID = 0;
+
+/*
+    Deletes the allocated SIDs during global static cleanup
+*/
+class SidCleanup
+{
+public:
+    ~SidCleanup();
+};
+
+SidCleanup::~SidCleanup()
+{
+    qFree(currentUserSID);
+    currentUserSID = 0;
+
+    // worldSID was allocated with AllocateAndInitializeSid so it needs to be freed with FreeSid
+    if (worldSID) {
+        ::FreeSid(worldSID);
+        worldSID = 0;
+    }
+}
+
+Q_GLOBAL_STATIC(SidCleanup, initSidCleanup)
 
 static void resolveLibs()
 {
@@ -198,25 +222,35 @@ static void resolveLibs()
             // Create TRUSTEE for current user
             HANDLE hnd = ::GetCurrentProcess();
             HANDLE token = 0;
+            initSidCleanup();
             if (::OpenProcessToken(hnd, TOKEN_QUERY, &token)) {
-                TOKEN_USER tu;
-                DWORD retsize;
-                if (::GetTokenInformation(token, TokenUser, &tu, sizeof(tu), &retsize))
-                    ptrBuildTrusteeWithSidW(&currentUserTrusteeW, tu.User.Sid);
+                DWORD retsize = 0;
+                // GetTokenInformation requires a buffer big enough for the TOKEN_USER struct and
+                // the SID struct. Since the SID struct can have variable number of subauthorities
+                // tacked at the end, its size is variable. Obtain the required size by first
+                // doing a dummy GetTokenInformation call.
+                ::GetTokenInformation(token, TokenUser, 0, 0, &retsize);
+                if (retsize) {
+                    void *tokenBuffer = qMalloc(retsize);
+                    if (::GetTokenInformation(token, TokenUser, tokenBuffer, retsize, &retsize)) {
+                        PSID tokenSid = reinterpret_cast<PTOKEN_USER>(tokenBuffer)->User.Sid;
+                        DWORD sidLen = ::GetLengthSid(tokenSid);
+                        currentUserSID = reinterpret_cast<PSID>(qMalloc(sidLen));
+                        if (::CopySid(sidLen, currentUserSID, tokenSid))
+                            ptrBuildTrusteeWithSidW(&currentUserTrusteeW, currentUserSID);
+                    }
+                    qFree(tokenBuffer);
+                }
                 ::CloseHandle(token);
             }
 
             typedef BOOL (WINAPI *PtrAllocateAndInitializeSid)(PSID_IDENTIFIER_AUTHORITY, BYTE, DWORD, DWORD, DWORD, DWORD, DWORD, DWORD, DWORD, DWORD, PSID*);
             PtrAllocateAndInitializeSid ptrAllocateAndInitializeSid = (PtrAllocateAndInitializeSid)advapi32.resolve("AllocateAndInitializeSid");
-            typedef PVOID (WINAPI *PtrFreeSid)(PSID);
-            PtrFreeSid ptrFreeSid = (PtrFreeSid)advapi32.resolve("FreeSid");
-            if (ptrAllocateAndInitializeSid && ptrFreeSid) {
+            if (ptrAllocateAndInitializeSid) {
                 // Create TRUSTEE for Everyone (World)
                 SID_IDENTIFIER_AUTHORITY worldAuth = { SECURITY_WORLD_SID_AUTHORITY };
-                PSID pWorld = 0;
-                if (ptrAllocateAndInitializeSid(&worldAuth, 1, SECURITY_WORLD_RID, 0, 0, 0, 0, 0, 0, 0, &pWorld))
-                    ptrBuildTrusteeWithSidW(&worldTrusteeW, pWorld);
-                ptrFreeSid(pWorld);
+                if (ptrAllocateAndInitializeSid(&worldAuth, 1, SECURITY_WORLD_RID, 0, 0, 0, 0, 0, 0, 0, &worldSID))
+                    ptrBuildTrusteeWithSidW(&worldTrusteeW, worldSID);
             }
         }
 
@@ -591,8 +625,6 @@ QString QFileSystemEngine::owner(const QFileSystemEntry &entry, QAbstractFileEng
 bool QFileSystemEngine::fillPermissions(const QFileSystemEntry &entry, QFileSystemMetaData &data,
                                         QFileSystemMetaData::MetaDataFlags what)
 {
-    QAbstractFileEngine::FileFlags ret = 0;
-
 #if !defined(QT_NO_LIBRARY)
     if((qt_ntfs_permission_lookup > 0) && (QSysInfo::WindowsVersion & QSysInfo::WV_NT_based)) {
         resolveLibs();

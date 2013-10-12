@@ -1,38 +1,38 @@
 /****************************************************************************
 **
-** Copyright (C) 2011 Nokia Corporation and/or its subsidiary(-ies).
-** All rights reserved.
-** Contact: Nokia Corporation (qt-info@nokia.com)
+** Copyright (C) 2012 Digia Plc and/or its subsidiary(-ies).
+** Contact: http://www.qt-project.org/legal
 **
 ** This file is part of the QtGui module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
-** GNU Lesser General Public License Usage
-** This file may be used under the terms of the GNU Lesser General Public
-** License version 2.1 as published by the Free Software Foundation and
-** appearing in the file LICENSE.LGPL included in the packaging of this
-** file. Please review the following information to ensure the GNU Lesser
-** General Public License version 2.1 requirements will be met:
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and Digia.  For licensing terms and
+** conditions see http://qt.digia.com/licensing.  For further information
+** use the contact form at http://qt.digia.com/contact-us.
 **
-** In addition, as a special exception, Nokia gives you certain additional
-** rights. These rights are described in the Nokia Qt LGPL Exception
+** GNU Lesser General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU Lesser
+** General Public License version 2.1 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU Lesser General Public License version 2.1 requirements
+** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+**
+** In addition, as a special exception, Digia gives you certain additional
+** rights.  These rights are described in the Digia Qt LGPL Exception
 ** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
 **
 ** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU General
-** Public License version 3.0 as published by the Free Software Foundation
-** and appearing in the file LICENSE.GPL included in the packaging of this
-** file. Please review the following information to ensure the GNU General
-** Public License version 3.0 requirements will be met:
-** http://www.gnu.org/copyleft/gpl.html.
-**
-** Other Usage
-** Alternatively, this file may be used in accordance with the terms and
-** conditions contained in a signed written agreement between you and Nokia.
-**
-**
-**
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3.0 as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU General Public License version 3.0 requirements will be
+** met: http://www.gnu.org/copyleft/gpl.html.
 **
 **
 ** $QT_END_LICENSE$
@@ -96,6 +96,11 @@ void qt_mac_cgimage_data_free(void *info, const void *memoryToFree, size_t)
     } else {
         if (QMacPixmapData::validDataPointers.contains(pmdata) == false) {
             free(const_cast<void *>(memoryToFree));
+            // mark data as freed
+            if (pmdata->pixels == memoryToFree)
+                pmdata->pixels = 0;
+            if (pmdata->pixelsToFree == memoryToFree)
+                pmdata->pixelsToFree = 0;
             return;
         }
         if (pmdata->pixels == pmdata->pixelsToFree) {
@@ -284,6 +289,10 @@ void QMacPixmapData::fromImage(const QImage &img,
     // different size or depth, make a new pixmap
     resize(w, h);
 
+    // exit if resize failed
+    if (is_null)
+        return;
+
     quint32 *dptr = pixels, *drow;
     const uint dbpr = bytesPerRow;
 
@@ -379,6 +388,9 @@ QImage QMacPixmapData::toImage() const
                   QImage::Format_RGB32);
 
     QImage image(w, h, format);
+        // exit if image was not created (out of memory)
+    if (image.isNull())
+        return image;
     quint32 *sptr = pixels, *srow;
     const uint sbpr = bytesPerRow;
     if (format == QImage::Format_MonoLSB) {
@@ -515,10 +527,11 @@ QMacPixmapData::~QMacPixmapData()
     delete pengine;  // Make sure we aren't drawing on the context anymore.
     if (cg_data) {
         CGImageRelease(cg_data);
-    } else if (!cg_dataBeingReleased && pixels != pixelsToFree) {
-        free(pixels);
     }
-    free(pixelsToFree);
+    if (pixels && (pixels != pixelsToFree))
+        free(pixels);
+    if (pixelsToFree)
+        free(pixelsToFree);
 }
 
 void QMacPixmapData::macSetAlphaChannel(const QMacPixmapData *pix, bool asMask)
@@ -636,7 +649,7 @@ void QMacPixmapData::macReleaseCGImageRef()
 // copy them over. This is to preserve the fact that CGImageRef's are immutable.
 void QMacPixmapData::macCreatePixels()
 {
-    const int numBytes = bytesPerRow * h;
+    int numBytes = bytesPerRow * h;
     quint32 *base_pixels;
     if (pixelsToFree && pixelsToFree != pixels) {
         // Reuse unused block of memory lying around from a previous callback.
@@ -645,10 +658,24 @@ void QMacPixmapData::macCreatePixels()
     } else {
         // We need a block of memory to do stuff with.
         base_pixels = static_cast<quint32 *>(malloc(numBytes));
+        if (!base_pixels) {
+            qWarning("Failed to allocate memory for pixmap data, setting to NULL");
+            numBytes = 0;
+            w = 0;
+            h = 0;
+            is_null = 0;
+            bytesPerRow=0;
+        }
     }
 
-    if (pixels)
+    // only copy when both buffers exist
+    if (pixels && base_pixels)
         memcpy(base_pixels, pixels, qMin(pixelsSize, (uint) numBytes));
+
+    // free pixels before assigning new memory
+    if (pixels)
+        free(pixels);
+
     pixels = base_pixels;
     pixelsSize = numBytes;
 }
@@ -1174,15 +1201,19 @@ void QMacPixmapData::copy(const QPixmapData *data, const QRect &rect)
     const int x = rect.x();
     const int y = rect.y();
     char *dest = reinterpret_cast<char*>(pixels);
-    const char *src = reinterpret_cast<const char*>(macData->pixels + x) + y * macData->bytesPerRow;
-    for (int i = 0; i < h; ++i) {
-        memcpy(dest, src, w * 4);
-        dest += bytesPerRow;
-        src += macData->bytesPerRow;
-    }
 
-    has_alpha = macData->has_alpha;
-    has_mask = macData->has_mask;
+    // only copy data buffer if destination buffer exists (resize might have failed)
+    if (dest) {
+        const char *src = reinterpret_cast<const char*>(macData->pixels + x) + y * macData->bytesPerRow;
+        for (int i = 0; i < h; ++i) {
+            memcpy(dest, src, w * 4);
+            dest += bytesPerRow;
+            src += macData->bytesPerRow;
+        }
+
+        has_alpha = macData->has_alpha;
+        has_mask = macData->has_mask;
+    }
 }
 
 bool QMacPixmapData::scroll(int dx, int dy, const QRect &rect)

@@ -34,8 +34,11 @@
 #include <QString>
 #include <QStringList>
 #include <QNetworkProxy>
+#include <QVariant>
 
-class Config: QObject
+class QCommandLine;
+
+class Config: public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QString cookiesFile READ cookiesFile WRITE setCookiesFile)
@@ -51,6 +54,15 @@ class Config: QObject
     Q_PROPERTY(bool webSecurityEnabled READ webSecurityEnabled WRITE setWebSecurityEnabled)
     Q_PROPERTY(QString offlineStoragePath READ offlineStoragePath WRITE setOfflineStoragePath)
     Q_PROPERTY(int offlineStorageDefaultQuota READ offlineStorageDefaultQuota WRITE setOfflineStorageDefaultQuota)
+    Q_PROPERTY(bool printDebugMessages READ printDebugMessages WRITE setPrintDebugMessages)
+    Q_PROPERTY(bool javascriptCanOpenWindows READ javascriptCanOpenWindows WRITE setJavascriptCanOpenWindows)
+    Q_PROPERTY(bool javascriptCanCloseWindows READ javascriptCanCloseWindows WRITE setJavascriptCanCloseWindows)
+    Q_PROPERTY(QString sslProtocol READ sslProtocol WRITE setSslProtocol)
+    Q_PROPERTY(QString sslCertificatesPath READ sslCertificatesPath WRITE setSslCertificatesPath)
+    Q_PROPERTY(QString webdriver READ webdriver WRITE setWebdriver)
+    Q_PROPERTY(QString webdriverLogFile READ webdriverLogFile WRITE setWebdriverLogFile)
+    Q_PROPERTY(QString webdriverLogLevel READ webdriverLogLevel WRITE setWebdriverLogLevel)
+    Q_PROPERTY(QString webdriverSeleniumGridHub READ webdriverSeleniumGridHub WRITE setWebdriverSeleniumGridHub)
 
 public:
     Config(QObject *parent = 0);
@@ -58,6 +70,8 @@ public:
     void init(const QStringList *const args);
     void processArgs(const QStringList &args);
     void loadJsonFile(const QString &filePath);
+
+    QString helpText() const;
 
     bool autoLoadImages() const;
     void setAutoLoadImages(const bool value);
@@ -131,6 +145,40 @@ public:
     bool helpFlag() const;
     void setHelpFlag(const bool value);
 
+    void setPrintDebugMessages(const bool value);
+    bool printDebugMessages() const;
+
+    void setJavascriptCanOpenWindows(const bool value);
+    bool javascriptCanOpenWindows() const;
+
+    void setJavascriptCanCloseWindows(const bool value);
+    bool javascriptCanCloseWindows() const;
+
+    void setSslProtocol(const QString& sslProtocolName);
+    QString sslProtocol() const;
+
+    void setSslCertificatesPath(const QString& sslCertificatesPath);
+    QString sslCertificatesPath() const;
+
+    void setWebdriver(const QString& webdriverConfig);
+    QString webdriver() const;
+    bool isWebdriverMode() const;
+
+    void setWebdriverLogFile(const QString& webdriverLogFile);
+    QString webdriverLogFile() const;
+
+    void setWebdriverLogLevel(const QString& webdriverLogLevel);
+    QString webdriverLogLevel() const;
+
+    void setWebdriverSeleniumGridHub(const QString& hubUrl);
+    QString webdriverSeleniumGridHub() const;
+
+public slots:
+    void handleSwitch(const QString &sw);
+    void handleOption(const QString &option, const QVariant &value);
+    void handleParam(const QString& param, const QVariant &value);
+    void handleError(const QString &error);
+
 private:
     void resetToDefaults();
     void setProxyHost(const QString &value);
@@ -138,6 +186,7 @@ private:
     void setAuthUser(const QString &value);
     void setAuthPass(const QString &value);
 
+    QCommandLine *m_cmdLine;
     bool m_autoLoadImages;
     QString m_cookiesFile;
     QString m_offlineStoragePath;
@@ -164,6 +213,16 @@ private:
     bool m_remoteDebugAutorun;
     bool m_webSecurityEnabled;
     bool m_helpFlag;
+    bool m_printDebugMessages;
+    bool m_javascriptCanOpenWindows;
+    bool m_javascriptCanCloseWindows;
+    QString m_sslProtocol;
+    QString m_sslCertificatesPath;
+    QString m_webdriverIp;
+    QString m_webdriverPort;
+    QString m_webdriverLogFile;
+    QString m_webdriverLogLevel;
+    QString m_webdriverSeleniumGridHub;
 };
 
 #endif // CONFIG_H

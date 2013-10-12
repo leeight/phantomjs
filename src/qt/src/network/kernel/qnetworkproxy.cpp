@@ -1,38 +1,38 @@
 /****************************************************************************
 **
-** Copyright (C) 2011 Nokia Corporation and/or its subsidiary(-ies).
-** All rights reserved.
-** Contact: Nokia Corporation (qt-info@nokia.com)
+** Copyright (C) 2012 Digia Plc and/or its subsidiary(-ies).
+** Contact: http://www.qt-project.org/legal
 **
 ** This file is part of the QtNetwork module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
-** GNU Lesser General Public License Usage
-** This file may be used under the terms of the GNU Lesser General Public
-** License version 2.1 as published by the Free Software Foundation and
-** appearing in the file LICENSE.LGPL included in the packaging of this
-** file. Please review the following information to ensure the GNU Lesser
-** General Public License version 2.1 requirements will be met:
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and Digia.  For licensing terms and
+** conditions see http://qt.digia.com/licensing.  For further information
+** use the contact form at http://qt.digia.com/contact-us.
 **
-** In addition, as a special exception, Nokia gives you certain additional
-** rights. These rights are described in the Nokia Qt LGPL Exception
+** GNU Lesser General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU Lesser
+** General Public License version 2.1 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU Lesser General Public License version 2.1 requirements
+** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+**
+** In addition, as a special exception, Digia gives you certain additional
+** rights.  These rights are described in the Digia Qt LGPL Exception
 ** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
 **
 ** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU General
-** Public License version 3.0 as published by the Free Software Foundation
-** and appearing in the file LICENSE.GPL included in the packaging of this
-** file. Please review the following information to ensure the GNU General
-** Public License version 3.0 requirements will be met:
-** http://www.gnu.org/copyleft/gpl.html.
-**
-** Other Usage
-** Alternatively, this file may be used in accordance with the terms and
-** conditions contained in a signed written agreement between you and Nokia.
-**
-**
-**
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3.0 as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU General Public License version 3.0 requirements will be
+** met: http://www.gnu.org/copyleft/gpl.html.
 **
 **
 ** $QT_END_LICENSE$
@@ -129,9 +129,9 @@
     \value NoProxy No proxying is used
     \value DefaultProxy Proxy is determined based on the application proxy set using setApplicationProxy()
     \value Socks5Proxy \l Socks5 proxying is used
-    \value HttpProxy HTTP transparent proxying is used
-    \value HttpCachingProxy Proxying for HTTP requests only
-    \value FtpCachingProxy Proxying for FTP requests only
+    \value HttpProxy HTTP transparent proxying is used (This value was introduced in 4.3.)
+    \value HttpCachingProxy Proxying for HTTP requests only (This value was introduced in 4.4.)
+    \value FtpCachingProxy Proxying for FTP requests only (This value was introduced in 4.4.)
 
     The table below lists different proxy types and their
     capabilities. Since each proxy type has different capabilities, it
@@ -247,6 +247,15 @@ public:
         , socks5SocketEngineHandler(0)
         , httpSocketEngineHandler(0)
     {
+#ifdef QT_USE_SYSTEM_PROXIES
+        setApplicationProxyFactory(new QSystemConfigurationProxyFactory);
+#endif
+#ifndef QT_NO_SOCKS5
+        socks5SocketEngineHandler = new QSocks5SocketEngineHandler();
+#endif
+#ifndef QT_NO_HTTP
+        httpSocketEngineHandler = new QHttpSocketEngineHandler();
+#endif
     }
 
     ~QGlobalNetworkProxy()
@@ -255,19 +264,6 @@ public:
         delete applicationLevelProxyFactory;
         delete socks5SocketEngineHandler;
         delete httpSocketEngineHandler;
-    }
-
-    void init()
-    {
-        QMutexLocker lock(&mutex);
-#ifndef QT_NO_SOCKS5
-        if (!socks5SocketEngineHandler)
-            socks5SocketEngineHandler = new QSocks5SocketEngineHandler();
-#endif
-#ifndef QT_NO_HTTP
-        if (!httpSocketEngineHandler)
-            httpSocketEngineHandler = new QHttpSocketEngineHandler();
-#endif
     }
 
     void setApplicationProxy(const QNetworkProxy &proxy)
@@ -309,6 +305,19 @@ QList<QNetworkProxy> QGlobalNetworkProxy::proxyForQuery(const QNetworkProxyQuery
     QMutexLocker locker(&mutex);
 
     QList<QNetworkProxy> result;
+
+    // don't look for proxies for a local connection
+    QHostAddress parsed;
+    QString hostname = query.url().host();
+    if (hostname == QLatin1String("localhost")
+        || hostname.startsWith(QLatin1String("localhost."))
+        || (parsed.setAddress(hostname)
+            && (parsed == QHostAddress::LocalHost
+                || parsed == QHostAddress::LocalHostIPv6))) {
+        result << QNetworkProxy(QNetworkProxy::NoProxy);
+        return result;
+    }
+
     if (!applicationLevelProxyFactory) {
         if (applicationLevelProxy
             && applicationLevelProxy->type() != QNetworkProxy::DefaultProxy)
@@ -430,8 +439,10 @@ template<> void QSharedDataPointer<QNetworkProxyPrivate>::detach()
 QNetworkProxy::QNetworkProxy()
     : d(0)
 {
-    if (QGlobalNetworkProxy *globalProxy = globalNetworkProxy())
-        globalProxy->init();
+    // make sure we have QGlobalNetworkProxy singleton created, otherwise
+    // you don't have any socket engine handler created when directly setting
+    // a proxy to the socket
+    globalNetworkProxy();
 }
 
 /*!
@@ -446,8 +457,10 @@ QNetworkProxy::QNetworkProxy(ProxyType type, const QString &hostName, quint16 po
                   const QString &user, const QString &password)
     : d(new QNetworkProxyPrivate(type, hostName, port, user, password))
 {
-    if (QGlobalNetworkProxy *globalProxy = globalNetworkProxy())
-        globalProxy->init();
+    // make sure we have QGlobalNetworkProxy singleton created, otherwise
+    // you don't have any socket engine handler created when directly setting
+    // a proxy to a socket
+    globalNetworkProxy();
 }
 
 /*!
@@ -1337,7 +1350,7 @@ void QNetworkProxyFactory::setApplicationProxyFactory(QNetworkProxyFactory *fact
 /*!
     \fn QList<QNetworkProxy> QNetworkProxyFactory::queryProxy(const QNetworkProxyQuery &query)
 
-    This function examines takes the query request, \a query,
+    This function takes the query request, \a query,
     examines the details of the type of socket or request and returns
     a list of QNetworkProxy objects that indicate the proxy servers to
     be used, in order of preference.
@@ -1358,7 +1371,7 @@ void QNetworkProxyFactory::setApplicationProxyFactory(QNetworkProxyFactory *fact
 /*!
     \fn QList<QNetworkProxy> QNetworkProxyFactory::systemProxyForQuery(const QNetworkProxyQuery &query)
 
-    This function examines takes the query request, \a query,
+    This function takes the query request, \a query,
     examines the details of the type of socket or request and returns
     a list of QNetworkProxy objects that indicate the proxy servers to
     be used, in order of preference.
@@ -1384,6 +1397,12 @@ void QNetworkProxyFactory::setApplicationProxyFactory(QNetworkProxyFactory *fact
     SOCKS server for all queries. If SOCKS isn't enabled, it will use
     the HTTPS proxy for all TcpSocket and UrlRequest queries.
 
+    On BlackBerry, this function obtains proxy settings for the default
+    configuration using system configuration. The type will be set based on
+    protocol tag "http", "https", "ftp", respectively. By default, it
+    assumes http type. Proxy username and password are also set during
+    the query using system configuration.
+
     On other systems, this function will pick up proxy settings from
     the "http_proxy" environment variable. This variable must be a URL
     using one of the following schemes: "http", "socks5" or "socks5h".
@@ -1400,11 +1419,15 @@ void QNetworkProxyFactory::setApplicationProxyFactory(QNetworkProxyFactory *fact
 
     \o On Windows platforms, this function may take several seconds to
     execute depending on the configuration of the user's system.
+
+    \li On BlackBerry, only UrlRequest queries are supported. SOCKS is
+    not supported. The proxy credentials are only retrieved for the
+    default configuration.
     \endlist
 */
 
 /*!
-    This function examines takes the query request, \a query,
+    This function takes the query request, \a query,
     examines the details of the type of socket or request and returns
     a list of QNetworkProxy objects that indicate the proxy servers to
     be used, in order of preference.

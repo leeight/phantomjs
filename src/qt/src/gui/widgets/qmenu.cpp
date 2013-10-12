@@ -1,38 +1,38 @@
 /****************************************************************************
 **
-** Copyright (C) 2011 Nokia Corporation and/or its subsidiary(-ies).
-** All rights reserved.
-** Contact: Nokia Corporation (qt-info@nokia.com)
+** Copyright (C) 2012 Digia Plc and/or its subsidiary(-ies).
+** Contact: http://www.qt-project.org/legal
 **
 ** This file is part of the QtGui module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
-** GNU Lesser General Public License Usage
-** This file may be used under the terms of the GNU Lesser General Public
-** License version 2.1 as published by the Free Software Foundation and
-** appearing in the file LICENSE.LGPL included in the packaging of this
-** file. Please review the following information to ensure the GNU Lesser
-** General Public License version 2.1 requirements will be met:
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and Digia.  For licensing terms and
+** conditions see http://qt.digia.com/licensing.  For further information
+** use the contact form at http://qt.digia.com/contact-us.
 **
-** In addition, as a special exception, Nokia gives you certain additional
-** rights. These rights are described in the Nokia Qt LGPL Exception
+** GNU Lesser General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU Lesser
+** General Public License version 2.1 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU Lesser General Public License version 2.1 requirements
+** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+**
+** In addition, as a special exception, Digia gives you certain additional
+** rights.  These rights are described in the Digia Qt LGPL Exception
 ** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
 **
 ** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU General
-** Public License version 3.0 as published by the Free Software Foundation
-** and appearing in the file LICENSE.GPL included in the packaging of this
-** file. Please review the following information to ensure the GNU General
-** Public License version 3.0 requirements will be met:
-** http://www.gnu.org/copyleft/gpl.html.
-**
-** Other Usage
-** Alternatively, this file may be used in accordance with the terms and
-** conditions contained in a signed written agreement between you and Nokia.
-**
-**
-**
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3.0 as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU General Public License version 3.0 requirements will be
+** met: http://www.gnu.org/copyleft/gpl.html.
 **
 **
 ** $QT_END_LICENSE$
@@ -513,7 +513,7 @@ void QMenuPrivate::hideMenu(QMenu *menu, bool justRegister)
     menu->blockSignals(false);
 #endif // QT_NO_EFFECTS
     if (!justRegister)
-        menu->hide();
+        menu->close();
 }
 
 void QMenuPrivate::popupAction(QAction *action, int delay, bool activateFirst)
@@ -578,6 +578,16 @@ void QMenuPrivate::setCurrentAction(QAction *action, int popup, SelectionReason 
 {
     Q_Q(QMenu);
     tearoffHighlighted = 0;
+    // Reselect the currently active action in case mouse moved over other menu items when
+    // moving from sub menu action to sub menu (QTBUG-20094).
+    if (reason != SelectedFromKeyboard && action == currentAction && !(action && action->menu() && action->menu() != activeMenu)) {
+        if (QMenu *menu = qobject_cast<QMenu*>(causedPopup.widget)) {
+            if (causedPopup.action && menu->d_func()->activeMenu == q)
+                menu->d_func()->setCurrentAction(causedPopup.action, 0, reason, false);
+        }
+        return;
+    }
+
     if (currentAction)
         q->update(actionRect(currentAction));
 
@@ -1813,6 +1823,8 @@ void QMenu::popup(const QPoint &p, QAction *atAction)
     Q_D(QMenu);
 #ifndef Q_OS_SYMBIAN
     if (d->scroll) { // reset scroll state from last popup
+        if (d->scroll->scrollOffset)
+            d->itemsDirty = 1; // sizeHint will be incorrect if there is previous scroll
         d->scroll->scrollOffset = 0;
         d->scroll->scrollFlags = QMenuPrivate::QMenuScroller::ScrollNone;
     }
@@ -1850,16 +1862,17 @@ void QMenu::popup(const QPoint &p, QAction *atAction)
     screen = d->popupGeometry(QApplication::desktop()->screenNumber(p));
     const int desktopFrame = style()->pixelMetric(QStyle::PM_MenuDesktopFrameWidth, 0, this);
     bool adjustToDesktop = !window()->testAttribute(Qt::WA_DontShowOnScreen);
-
-    // if the screens have very different geometries and the menu is too big, we have to recalculate
-    if (size.height() > screen.height() || size.width() > screen.width()) {
-        size = d->adjustMenuSizeForScreen(screen);
-        adjustToDesktop = true;
-    }
-    // Layout is not right, we might be able to save horizontal space
-    if (d->ncols >1 && size.height() < screen.height()) {
-        size = d->adjustMenuSizeForScreen(screen);
-        adjustToDesktop = true;
+    if (!d->scroll) {
+        // if the screens have very different geometries and the menu is too big, we have to recalculate
+        if (size.height() > screen.height() || size.width() > screen.width()) {
+            size = d->adjustMenuSizeForScreen(screen);
+            adjustToDesktop = true;
+        }
+        // Layout is not right, we might be able to save horizontal space
+        if (d->ncols >1 && size.height() < screen.height()) {
+            size = d->adjustMenuSizeForScreen(screen);
+            adjustToDesktop = true;
+        }
     }
 
 #ifdef QT_KEYPAD_NAVIGATION
@@ -1911,6 +1924,7 @@ void QMenu::popup(const QPoint &p, QAction *atAction)
     d->mousePopupPos = mouse;
     const bool snapToMouse = (QRect(p.x() - 3, p.y() - 3, 6, 6).contains(mouse));
 
+    const QSize menuSize(sizeHint());
     if (adjustToDesktop) {
         // handle popup falling "off screen"
         if (isRightToLeft()) {
@@ -1944,7 +1958,7 @@ void QMenu::popup(const QPoint &p, QAction *atAction)
 
         if (pos.y() < screen.top() + desktopFrame)
             pos.setY(screen.top() + desktopFrame);
-        if (pos.y() + size.height() - 1 > screen.bottom() - desktopFrame) {
+        if (pos.y() + menuSize.height() - 1 > screen.bottom() - desktopFrame) {
             if (d->scroll) {
                 d->scroll->scrollFlags |= uint(QMenuPrivate::QMenuScroller::ScrollDown);
                 int y = qMax(screen.y(),pos.y());
@@ -1956,7 +1970,6 @@ void QMenu::popup(const QPoint &p, QAction *atAction)
         }
     }
     const int subMenuOffset = style()->pixelMetric(QStyle::PM_SubMenuOverlap, 0, this);
-    const QSize menuSize(sizeHint());
     QMenu *caused = qobject_cast<QMenu*>(d_func()->causedPopup.widget);
     if (caused && caused->geometry().width() + menuSize.width() + subMenuOffset < screen.width()) {
         QRect parentActionRect(caused->d_func()->actionRect(caused->d_func()->currentAction));
@@ -1966,13 +1979,21 @@ void QMenu::popup(const QPoint &p, QAction *atAction)
             if ((pos.x() + menuSize.width() > parentActionRect.left() - subMenuOffset)
                 && (pos.x() < parentActionRect.right()))
             {
+                pos.rx() = parentActionRect.left() - menuSize.width();
+                if (pos.x() < screen.x())
                     pos.rx() = parentActionRect.right();
+                if (pos.x() + menuSize.width() > screen.x() + screen.width())
+                    pos.rx() = screen.x();
             }
         } else {
             if ((pos.x() < parentActionRect.right() + subMenuOffset)
                 && (pos.x() + menuSize.width() > parentActionRect.left()))
             {
+                pos.rx() = parentActionRect.right();
+                if (pos.x() + menuSize.width() > screen.x() + screen.width())
                     pos.rx() = parentActionRect.left() - menuSize.width();
+                if (pos.x() < screen.x())
+                    pos.rx() = screen.x() + screen.width() - menuSize.width();
             }
         }
     }
@@ -2378,7 +2399,7 @@ void QMenu::changeEvent(QEvent *e)
         if (d->tornPopup) // torn-off menu
             d->tornPopup->setEnabled(isEnabled());
         d->menuAction->setEnabled(isEnabled());
-#ifdef Q_WS_MAC
+#if defined(Q_WS_MAC) && !defined(QT_MAC_USE_COCOA)
         if (d->mac_menu)
             d->setMacMenuEnabled(isEnabled());
 #endif

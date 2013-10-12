@@ -1,38 +1,38 @@
 /****************************************************************************
 **
-** Copyright (C) 2011 Nokia Corporation and/or its subsidiary(-ies).
-** All rights reserved.
-** Contact: Nokia Corporation (qt-info@nokia.com)
+** Copyright (C) 2012 Digia Plc and/or its subsidiary(-ies).
+** Contact: http://www.qt-project.org/legal
 **
 ** This file is part of the QtNetwork module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
-** GNU Lesser General Public License Usage
-** This file may be used under the terms of the GNU Lesser General Public
-** License version 2.1 as published by the Free Software Foundation and
-** appearing in the file LICENSE.LGPL included in the packaging of this
-** file. Please review the following information to ensure the GNU Lesser
-** General Public License version 2.1 requirements will be met:
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and Digia.  For licensing terms and
+** conditions see http://qt.digia.com/licensing.  For further information
+** use the contact form at http://qt.digia.com/contact-us.
 **
-** In addition, as a special exception, Nokia gives you certain additional
-** rights. These rights are described in the Nokia Qt LGPL Exception
+** GNU Lesser General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU Lesser
+** General Public License version 2.1 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU Lesser General Public License version 2.1 requirements
+** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+**
+** In addition, as a special exception, Digia gives you certain additional
+** rights.  These rights are described in the Digia Qt LGPL Exception
 ** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
 **
 ** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU General
-** Public License version 3.0 as published by the Free Software Foundation
-** and appearing in the file LICENSE.GPL included in the packaging of this
-** file. Please review the following information to ensure the GNU General
-** Public License version 3.0 requirements will be met:
-** http://www.gnu.org/copyleft/gpl.html.
-**
-** Other Usage
-** Alternatively, this file may be used in accordance with the terms and
-** conditions contained in a signed written agreement between you and Nokia.
-**
-**
-**
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3.0 as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU General Public License version 3.0 requirements will be
+** met: http://www.gnu.org/copyleft/gpl.html.
 **
 **
 ** $QT_END_LICENSE$
@@ -2246,6 +2246,57 @@ void QSslSocketPrivate::_q_flushReadBuffer()
 /*!
     \internal
 */
+qint64 QSslSocketPrivate::peek(char *data, qint64 maxSize)
+{
+    if (mode == QSslSocket::UnencryptedMode && !autoStartHandshake) {
+        //unencrypted mode - do not use QIODevice::peek, as it reads ahead data from the plain socket
+        //peek at data already in the QIODevice buffer (from a previous read)
+        qint64 r = buffer.peek(data, maxSize);
+        if (r == maxSize)
+            return r;
+        data += r;
+        //peek at data in the plain socket
+        if (plainSocket) {
+            qint64 r2 = plainSocket->peek(data, maxSize - r);
+            if (r2 < 0)
+                return (r > 0 ? r : r2);
+            return r + r2;
+        } else {
+            return -1;
+        }
+    } else {
+        //encrypted mode - the socket engine will read and decrypt data into the QIODevice buffer
+        return QTcpSocketPrivate::peek(data, maxSize);
+    }
+}
+
+/*!
+    \internal
+*/
+QByteArray QSslSocketPrivate::peek(qint64 maxSize)
+{
+    if (mode == QSslSocket::UnencryptedMode && !autoStartHandshake) {
+        //unencrypted mode - do not use QIODevice::peek, as it reads ahead data from the plain socket
+        //peek at data already in the QIODevice buffer (from a previous read)
+        QByteArray ret;
+        ret.reserve(maxSize);
+        ret.resize(buffer.peek(ret.data(), maxSize));
+        if (ret.length() == maxSize)
+            return ret;
+        //peek at data in the plain socket
+        if (plainSocket)
+            return ret + plainSocket->peek(maxSize - ret.length());
+        else
+            return QByteArray();
+    } else {
+        //encrypted mode - the socket engine will read and decrypt data into the QIODevice buffer
+        return QTcpSocketPrivate::peek(maxSize);
+    }
+}
+
+/*!
+    \internal
+*/
 QList<QByteArray> QSslSocketPrivate::unixRootCertDirectories()
 {
     return QList<QByteArray>() <<  "/etc/ssl/certs/" // (K)ubuntu, OpenSUSE, Mandriva, MeeGo ...
@@ -2254,6 +2305,7 @@ QList<QByteArray> QSslSocketPrivate::unixRootCertDirectories()
                                << "/usr/local/ssl/" // Normal OpenSSL Tarball
                                << "/var/ssl/certs/" // AIX
                                << "/usr/local/ssl/certs/" // Solaris
+                               << "/var/certmgr/web/user_trusted/" // BlackBerry
                                << "/opt/openssl/certs/"; // HP-UX
 }
 

@@ -1,38 +1,38 @@
 /****************************************************************************
 **
-** Copyright (C) 2011 Nokia Corporation and/or its subsidiary(-ies).
-** All rights reserved.
-** Contact: Nokia Corporation (qt-info@nokia.com)
+** Copyright (C) 2012 Digia Plc and/or its subsidiary(-ies).
+** Contact: http://www.qt-project.org/legal
 **
 ** This file is part of the QtGui module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
-** GNU Lesser General Public License Usage
-** This file may be used under the terms of the GNU Lesser General Public
-** License version 2.1 as published by the Free Software Foundation and
-** appearing in the file LICENSE.LGPL included in the packaging of this
-** file. Please review the following information to ensure the GNU Lesser
-** General Public License version 2.1 requirements will be met:
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and Digia.  For licensing terms and
+** conditions see http://qt.digia.com/licensing.  For further information
+** use the contact form at http://qt.digia.com/contact-us.
 **
-** In addition, as a special exception, Nokia gives you certain additional
-** rights. These rights are described in the Nokia Qt LGPL Exception
+** GNU Lesser General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU Lesser
+** General Public License version 2.1 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU Lesser General Public License version 2.1 requirements
+** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+**
+** In addition, as a special exception, Digia gives you certain additional
+** rights.  These rights are described in the Digia Qt LGPL Exception
 ** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
 **
 ** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU General
-** Public License version 3.0 as published by the Free Software Foundation
-** and appearing in the file LICENSE.GPL included in the packaging of this
-** file. Please review the following information to ensure the GNU General
-** Public License version 3.0 requirements will be met:
-** http://www.gnu.org/copyleft/gpl.html.
-**
-** Other Usage
-** Alternatively, this file may be used in accordance with the terms and
-** conditions contained in a signed written agreement between you and Nokia.
-**
-**
-**
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3.0 as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU General Public License version 3.0 requirements will be
+** met: http://www.gnu.org/copyleft/gpl.html.
 **
 **
 ** $QT_END_LICENSE$
@@ -114,7 +114,20 @@ private:
             return;
         const int end = start + length;
         for (int i = start + 1; i < end; ++i) {
-            if ((m_analysis[i] == m_analysis[start])
+            // According to the unicode spec we should be treating characters in the Common script
+            // (punctuation, spaces, etc) as being the same script as the surrounding text for the
+            // purpose of splitting up text. This is important because, for example, a fullstop
+            // (0x2E) can be used to indicate an abbreviation and so must be treated as part of a
+            // word.  Thus it must be passed along with the word in languages that have to calculate
+            // word breaks.  For example the thai word "ครม." has no word breaks but the word "ครม"
+            // does.
+            // Unfortuntely because we split up the strings for both wordwrapping and for setting
+            // the font and because Japanese and Chinese are also aliases of the script "Common",
+            // doing this would break too many things.  So instead we only pass the full stop
+            // along, and nothing else.
+            if (m_analysis[i].bidiLevel == m_analysis[start].bidiLevel
+                && m_analysis[i].flags == m_analysis[start].flags
+                && (m_analysis[i].script == m_analysis[start].script || m_string[i] == QLatin1Char('.'))
                 && m_analysis[i].flags < QScriptAnalysis::SpaceTabOrObject
                 && i - start < MaxItemLength)
                 continue;
@@ -1643,12 +1656,19 @@ int QTextEngine::findItem(int strPos) const
 {
     itemize();
 
-    int item;
-    for (item = layoutData->items.size()-1; item > 0; --item) {
-        if (layoutData->items[item].position <= strPos)
-            break;
+    int left = 1;
+    int right = layoutData->items.size()-1;
+    while (left <= right) {
+        int middle = ((right-left)/2)+left;
+        if (strPos > layoutData->items[middle].position)
+            left = middle+1;
+        else if (strPos < layoutData->items[middle].position)
+            right = middle-1;
+        else {
+            return middle;
+        }
     }
-    return item;
+    return right;
 }
 
 QFixed QTextEngine::width(int from, int len) const
@@ -1894,12 +1914,17 @@ QFontEngine *QTextEngine::fontEngine(const QScriptItem &si, QFixed *ascent, QFix
                     font.setPixelSize((font.pixelSize() * 2) / 3);
                 scaledEngine = font.d->engineForScript(script);
             }
-            feCache.prevFontEngine = engine;
             if (engine)
                 engine->ref.ref();
-            feCache.prevScaledFontEngine = scaledEngine;
+            if (feCache.prevFontEngine)
+                releaseCachedFontEngine(feCache.prevFontEngine);
+            feCache.prevFontEngine = engine;
+
             if (scaledEngine)
                 scaledEngine->ref.ref();
+            if (feCache.prevScaledFontEngine)
+                releaseCachedFontEngine(feCache.prevScaledFontEngine);
+            feCache.prevScaledFontEngine = scaledEngine;
             feCache.prevScript = script;
             feCache.prevPosition = si.position;
             feCache.prevLength = length(&si);
@@ -1909,9 +1934,11 @@ QFontEngine *QTextEngine::fontEngine(const QScriptItem &si, QFixed *ascent, QFix
             engine = feCache.prevFontEngine;
         else {
             engine = font.d->engineForScript(script);
-            feCache.prevFontEngine = engine;
             if (engine)
                 engine->ref.ref();
+            if (feCache.prevFontEngine)
+                releaseCachedFontEngine(feCache.prevFontEngine);
+            feCache.prevFontEngine = engine;
             feCache.prevScript = script;
             feCache.prevPosition = -1;
             feCache.prevLength = -1;
@@ -2623,20 +2650,28 @@ QString QTextEngine::elidedText(Qt::TextElideMode mode, const QFixed &width, int
     return layoutData->string;
 }
 
+namespace {
+struct QScriptItemComparator {
+    bool operator()(const QScriptItem &a, const QScriptItem &b) { return a.position < b.position; }
+    bool operator()(int p, const QScriptItem &b) { return p < b.position; }
+    //bool operator()(const QScriptItem &a, int p) { return a.position < p; }
+};
+}
+
 void QTextEngine::setBoundary(int strPos) const
 {
     if (strPos <= 0 || strPos >= layoutData->string.length())
         return;
 
-    int itemToSplit = 0;
-    while (itemToSplit < layoutData->items.size() && layoutData->items.at(itemToSplit).position <= strPos)
-        itemToSplit++;
-    itemToSplit--;
-    if (layoutData->items.at(itemToSplit).position == strPos) {
+    const QScriptItem* it = qUpperBound(layoutData->items.constBegin(), layoutData->items.constEnd(),
+                                        strPos, QScriptItemComparator());
+    Q_ASSERT(it > layoutData->items.constBegin());
+    --it;
+    if (it->position == strPos) {
         // already a split at the requested position
         return;
     }
-    splitItem(itemToSplit, strPos - layoutData->items.at(itemToSplit).position);
+    splitItem(it - layoutData->items.constBegin(), strPos - it->position);
 }
 
 void QTextEngine::splitItem(int item, int pos) const
@@ -2904,6 +2939,8 @@ int QTextEngine::positionInLigature(const QScriptItem *si, int end,
         QFixed glyphWidth = glyphs.effectiveAdvance(glyph_pos);
         // the approximate width of each individual element of the ligature
         QFixed perItemWidth = glyphWidth / clusterLength;
+        if (perItemWidth <= 0)
+            return si->position + clusterStart;
         QFixed left = x > edge ? edge : edge - glyphWidth;
         int n = ((x - left) / perItemWidth).floor().toInt();
         QFixed dist = x - left - n * perItemWidth;
@@ -2912,7 +2949,7 @@ int QTextEngine::positionInLigature(const QScriptItem *si, int end,
             closestItem--;
         int pos = si->position + clusterStart + closestItem;
         // Jump to the next charStop
-        while (!attrs[pos].charStop && pos < end)
+        while (pos < end && !attrs[pos].charStop)
             pos++;
         return pos;
     }

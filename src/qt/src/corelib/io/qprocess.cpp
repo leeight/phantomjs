@@ -1,38 +1,38 @@
 /****************************************************************************
 **
-** Copyright (C) 2011 Nokia Corporation and/or its subsidiary(-ies).
-** All rights reserved.
-** Contact: Nokia Corporation (qt-info@nokia.com)
+** Copyright (C) 2012 Digia Plc and/or its subsidiary(-ies).
+** Contact: http://www.qt-project.org/legal
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
-** GNU Lesser General Public License Usage
-** This file may be used under the terms of the GNU Lesser General Public
-** License version 2.1 as published by the Free Software Foundation and
-** appearing in the file LICENSE.LGPL included in the packaging of this
-** file. Please review the following information to ensure the GNU Lesser
-** General Public License version 2.1 requirements will be met:
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and Digia.  For licensing terms and
+** conditions see http://qt.digia.com/licensing.  For further information
+** use the contact form at http://qt.digia.com/contact-us.
 **
-** In addition, as a special exception, Nokia gives you certain additional
-** rights. These rights are described in the Nokia Qt LGPL Exception
+** GNU Lesser General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU Lesser
+** General Public License version 2.1 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU Lesser General Public License version 2.1 requirements
+** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+**
+** In addition, as a special exception, Digia gives you certain additional
+** rights.  These rights are described in the Digia Qt LGPL Exception
 ** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
 **
 ** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU General
-** Public License version 3.0 as published by the Free Software Foundation
-** and appearing in the file LICENSE.GPL included in the packaging of this
-** file. Please review the following information to ensure the GNU General
-** Public License version 3.0 requirements will be met:
-** http://www.gnu.org/copyleft/gpl.html.
-**
-** Other Usage
-** Alternatively, this file may be used in accordance with the terms and
-** conditions contained in a signed written agreement between you and Nokia.
-**
-**
-**
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3.0 as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU General Public License version 3.0 requirements will be
+** met: http://www.gnu.org/copyleft/gpl.html.
 **
 **
 ** $QT_END_LICENSE$
@@ -528,6 +528,11 @@ void QProcessPrivate::Channel::clear()
     is not supported. The working directory will always be the private
     directory of the running process.
 
+    \note On QNX, setting the working directory may cause all
+    application threads, with the exception of the QProcess caller
+    thread, to temporarily freeze, owing to a limitation in
+    the operating system.
+
     \section1 Synchronous Process API
 
     QProcess provides a set of functions which allow it to be used
@@ -751,16 +756,12 @@ QProcessPrivate::QProcessPrivate()
     sequenceNumber = 0;
     exitCode = 0;
     exitStatus = QProcess::NormalExit;
-#ifndef Q_OS_QNX
     startupSocketNotifier = 0;
-#endif
     deathNotifier = 0;
     notifier = 0;
     pipeWriter = 0;
-#ifndef Q_OS_QNX
     childStartedPipe[0] = INVALID_Q_PIPE;
     childStartedPipe[1] = INVALID_Q_PIPE;
-#endif
     deathPipe[0] = INVALID_Q_PIPE;
     deathPipe[1] = INVALID_Q_PIPE;
     exitCode = 0;
@@ -829,13 +830,11 @@ void QProcessPrivate::cleanup()
         qDeleteInEventHandler(stdinChannel.notifier);
         stdinChannel.notifier = 0;
     }
-#ifndef Q_OS_QNX
     if (startupSocketNotifier) {
         startupSocketNotifier->setEnabled(false);
         qDeleteInEventHandler(startupSocketNotifier);
         startupSocketNotifier = 0;
     }
-#endif
     if (deathNotifier) {
         deathNotifier->setEnabled(false);
         qDeleteInEventHandler(deathNotifier);
@@ -848,9 +847,7 @@ void QProcessPrivate::cleanup()
     destroyPipe(stdoutChannel.pipe);
     destroyPipe(stderrChannel.pipe);
     destroyPipe(stdinChannel.pipe);
-#ifndef Q_OS_QNX
     destroyPipe(childStartedPipe);
-#endif
     destroyPipe(deathPipe);
 #ifdef Q_OS_UNIX
     serial = 0;
@@ -1085,10 +1082,8 @@ bool QProcessPrivate::_q_startupNotification()
     qDebug("QProcessPrivate::startupNotification()");
 #endif
 
-#ifndef Q_OS_QNX
     if (startupSocketNotifier)
         startupSocketNotifier->setEnabled(false);
-#endif
     if (processStarted()) {
         q->setProcessState(QProcess::Running);
         emit q->started();
@@ -1467,6 +1462,9 @@ QString QProcess::workingDirectory() const
     the private directory of the process is considered its working
     directory.
 
+    \note On QNX, this may cause all application threads to
+    temporarily freeze.
+
     \sa workingDirectory(), start()
 */
 void QProcess::setWorkingDirectory(const QString &dir)
@@ -1789,7 +1787,7 @@ void QProcess::setProcessState(ProcessState state)
     exit().
 
     \warning This function is called by QProcess on Unix and Mac OS X
-    only. On Windows, it is not called.
+    only. On Windows and QNX, it is not called.
 */
 void QProcess::setupChildProcess()
 {
@@ -2197,6 +2195,9 @@ int QProcess::execute(const QString &program)
 
     The process will be started in the directory \a workingDirectory.
 
+    \note On QNX, this may cause all application threads to
+    temporarily freeze.
+
     If the function is successful then *\a pid is set to the process
     identifier of the started process.
 */
@@ -2255,10 +2256,10 @@ bool QProcess::startDetached(const QString &program)
 }
 
 QT_BEGIN_INCLUDE_NAMESPACE
-#if defined(Q_OS_MAC) && !defined(QT_NO_CORESERVICES)
+#if defined(Q_OS_MAC) && !defined(Q_OS_IOS)
 # include <crt_externs.h>
 # define environ (*_NSGetEnviron())
-#elif defined(Q_OS_WINCE) || defined(Q_OS_SYMBIAN) || (defined(Q_OS_MAC) && defined(QT_NO_CORESERVICES))
+#elif defined(Q_OS_WINCE) || defined(Q_OS_SYMBIAN) || (defined(Q_OS_MAC) && defined(Q_OS_IOS))
   static char *qt_empty_environ[] = { 0 };
 #define environ qt_empty_environ
 #elif !defined(Q_OS_WIN)

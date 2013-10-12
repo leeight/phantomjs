@@ -1,38 +1,38 @@
 /****************************************************************************
 **
-** Copyright (C) 2011 Nokia Corporation and/or its subsidiary(-ies).
-** All rights reserved.
-** Contact: Nokia Corporation (qt-info@nokia.com)
+** Copyright (C) 2012 Digia Plc and/or its subsidiary(-ies).
+** Contact: http://www.qt-project.org/legal
 **
 ** This file is part of the QtGui module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
-** GNU Lesser General Public License Usage
-** This file may be used under the terms of the GNU Lesser General Public
-** License version 2.1 as published by the Free Software Foundation and
-** appearing in the file LICENSE.LGPL included in the packaging of this
-** file. Please review the following information to ensure the GNU Lesser
-** General Public License version 2.1 requirements will be met:
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and Digia.  For licensing terms and
+** conditions see http://qt.digia.com/licensing.  For further information
+** use the contact form at http://qt.digia.com/contact-us.
 **
-** In addition, as a special exception, Nokia gives you certain additional
-** rights. These rights are described in the Nokia Qt LGPL Exception
+** GNU Lesser General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU Lesser
+** General Public License version 2.1 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU Lesser General Public License version 2.1 requirements
+** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+**
+** In addition, as a special exception, Digia gives you certain additional
+** rights.  These rights are described in the Digia Qt LGPL Exception
 ** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
 **
 ** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU General
-** Public License version 3.0 as published by the Free Software Foundation
-** and appearing in the file LICENSE.GPL included in the packaging of this
-** file. Please review the following information to ensure the GNU General
-** Public License version 3.0 requirements will be met:
-** http://www.gnu.org/copyleft/gpl.html.
-**
-** Other Usage
-** Alternatively, this file may be used in accordance with the terms and
-** conditions contained in a signed written agreement between you and Nokia.
-**
-**
-**
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 3.0 as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL included in the
+** packaging of this file.  Please review the following information to
+** ensure the GNU General Public License version 3.0 requirements will be
+** met: http://www.gnu.org/copyleft/gpl.html.
 **
 **
 ** $QT_END_LICENSE$
@@ -129,6 +129,10 @@
 
 #ifdef Q_WS_S60
 #include <aknappui.h>
+#endif
+
+#ifdef Q_OS_BLACKBERRY
+#include <bps/navigator.h>
 #endif
 
 // widget/widget data creation count
@@ -314,6 +318,7 @@ QWidgetPrivate::QWidgetPrivate(int version)
 #elif defined(Q_OS_SYMBIAN)
       , symbianScreenNumber(0)
       , fixNativeOrientationCalled(false)
+      , isGLGlobalShareWidget(0)
 #endif
 {
     if (!qApp) {
@@ -1312,6 +1317,7 @@ void QWidgetPrivate::init(QWidget *parentWidget, Qt::WindowFlags f)
 #elif defined(Q_WS_QPA)
     if (desktopWidget) {
         int screen = desktopWidget->d_func()->topData()->screenIndex;
+        topData()->screenIndex = screen;
         QPlatformIntegration *platform = QApplicationPrivate::platformIntegration();
         platform->moveToScreen(q, screen);
     }
@@ -2418,11 +2424,19 @@ void QWidgetPrivate::paintBackground(QPainter *painter, const QRegion &rgn, int 
 
     if ((flags & DrawAsRoot) && !(q->autoFillBackground() && autoFillBrush.isOpaque())) {
         const QBrush bg = q->palette().brush(QPalette::Window);
-#ifdef Q_WS_QWS
-        if (!(flags & DontSetCompositionMode) && painter->paintEngine()->hasFeature(QPaintEngine::PorterDuff))
-            painter->setCompositionMode(QPainter::CompositionMode_Source); //copy alpha straight in
-#endif
+#if defined(Q_WS_QWS) || defined(Q_WS_QPA)
+        if (!(flags & DontSetCompositionMode)) {
+            //copy alpha straight in
+            QPainter::CompositionMode oldMode = painter->compositionMode();
+            painter->setCompositionMode(QPainter::CompositionMode_Source);
+            fillRegion(painter, rgn, bg);
+            painter->setCompositionMode(oldMode);
+        } else {
+            fillRegion(painter, rgn, bg);
+        }
+#else
         fillRegion(painter, rgn, bg);
+#endif
     }
 
     if (q->autoFillBackground())
@@ -3344,8 +3358,8 @@ QList<QAction*> QWidget::actions() const
     \property QWidget::enabled
     \brief whether the widget is enabled
 
-    An enabled widget handles keyboard and mouse events; a disabled
-    widget does not.
+    In general an enabled widget handles keyboard and mouse events; a disabled
+    widget does not. An exception is made with \l{QAbstractButton}.
 
     Some widgets display themselves differently when they are
     disabled. For example a button might draw its label grayed out. If
@@ -5705,7 +5719,7 @@ void QWidgetPrivate::render(QPaintDevice *target, const QPoint &targetOffset,
     else
         flags |= DontSubtractOpaqueChildren;
 
-#ifdef Q_WS_QWS
+#if defined(Q_WS_QWS) || defined(Q_WS_QPA)
     flags |= DontSetCompositionMode;
 #endif
 
@@ -8364,6 +8378,17 @@ bool QWidget::event(QEvent *event)
     case QEvent::MouseButtonDblClick:
         mouseDoubleClickEvent((QMouseEvent*)event);
         break;
+
+     case QEvent::NonClientAreaMouseButtonPress: {
+        QWidget* w;
+        while ((w = QApplication::activePopupWidget()) && w != this) {
+            w->close();
+            if (QApplication::activePopupWidget() == w) // widget does not want to disappear
+                w->hide(); // hide at least
+            }
+        break;
+        }
+
 #ifndef QT_NO_WHEELEVENT
     case QEvent::Wheel:
         wheelEvent((QWheelEvent*)event);
@@ -10990,6 +11015,16 @@ void QWidget::setAttribute(Qt::WidgetAttribute attribute, bool on)
                     setAttribute_internal(orientations[i], false, data, d);
             }
         }
+
+#ifdef Q_OS_BLACKBERRY
+        if (testAttribute(Qt::WA_AutoOrientation)) {
+            navigator_rotation_lock(false);
+        } else {
+            navigator_set_orientation_mode((testAttribute(Qt::WA_LockPortraitOrientation) ?
+                                            NAVIGATOR_PORTRAIT : NAVIGATOR_LANDSCAPE), 0);
+            navigator_rotation_lock(true);
+        }
+#endif
 
 #ifdef Q_WS_S60
         CAknAppUiBase* appUi = static_cast<CAknAppUiBase*>(CEikonEnv::Static()->EikAppUi());
